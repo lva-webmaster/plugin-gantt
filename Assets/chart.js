@@ -1,6 +1,7 @@
 // Based on jQuery.ganttView v.0.8.8 Copyright (c) 2010 JC Grubbs - jc.grubbs@devmynd.com - MIT License
 var Gantt = function() {
     this.data = [];
+    this.dateFormat = $("body").data("js-date-format") || 'yy-mm-dd';
 
     this.options = {
         container: "#gantt-chart",
@@ -33,13 +34,13 @@ Gantt.prototype.show = function() {
 
     var minDays = Math.floor((this.options.slideWidth / this.options.cellWidth) + 5);
     var range = this.getDateRange(minDays);
-    var startDate = range[0];
-    var endDate = range[1];
+    this._startDate = range[0];
+    this._endDate = range[1];
     var container = $(this.options.container);
     var chart = jQuery("<div>", { "class": "ganttview" });
 
     chart.append(this.renderVerticalHeader());
-    chart.append(this.renderSlider(startDate, endDate));
+    chart.append(this.renderSlider(this._startDate, this._endDate));
     container.append(chart);
 
     jQuery("div.ganttview-grid-row div.ganttview-grid-row-cell:last-child", container).addClass("last");
@@ -47,8 +48,8 @@ Gantt.prototype.show = function() {
     jQuery("div.ganttview-hzheader-months div.ganttview-hzheader-month:last-child", container).addClass("last");
 
     if (! $(this.options.container).data('readonly')) {
-        this.listenForBlockResize(startDate);
-        this.listenForBlockMove(startDate);
+        this.listenForBlockResize();
+        this.listenForBlockMove();
     }
     else {
         this.options.allowResizes = false;
@@ -57,8 +58,10 @@ Gantt.prototype.show = function() {
 };
 
 Gantt.prototype.infoTooltip = function(content) {
-    var markdown = $("<div>", {"class": "markdown"}).append(content);
-    var script = $("<script>", {"type": "text/template"}).append(markdown);
+    var wrapper = $("<div>").append(content);
+    var html = '<div class="markdown">' + wrapper.html() + '</div>';
+    var script = $("<script>", {"type": "text/template"});
+    script[0].textContent = html;
     var icon = $('<i>', {"class": "fa fa-info-circle"});
     return $('<span>', {"class": "tooltip"}).append(icon).append(script);
 };
@@ -105,8 +108,33 @@ Gantt.prototype.renderSlider = function(startDate, endDate) {
     slideDiv.append(this.renderGrid(dates));
     slideDiv.append(this.addBlockContainers());
     this.addBlocks(slideDiv, startDate);
+    this.addTodayMarker(slideDiv, startDate, endDate);
 
     return slideDiv;
+};
+
+Gantt.prototype.addTodayMarker = function(slider, startDate, endDate) {
+    var today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    if (this.compareDate(today, startDate) < 0 || this.compareDate(today, endDate) > 0) {
+        return;
+    }
+
+    var offset = this.daysBetween(startDate, today);
+    var left = (offset * this.options.cellWidth) + Math.floor(this.options.cellWidth / 2);
+    var height = (this.data.length * this.options.cellHeight) + 41;
+
+    var marker = jQuery("<div>", {
+        "class": "ganttview-today-marker",
+        "css": {
+            "left": left + "px",
+            "height": height + "px"
+        },
+        "title": $.datepicker.formatDate(this.dateFormat, today)
+    });
+
+    slider.append(marker);
 };
 
 // Render top header (days)
@@ -208,6 +236,7 @@ Gantt.prototype.addBlocks = function(slider, start) {
             this.addTaskBarText(text, series, size);
         }
 
+        block.attr("title", this.getBarTitleText(series));
         block.data("record", series);
         this.setBarColor(block, series);
 
@@ -217,12 +246,49 @@ Gantt.prototype.addBlocks = function(slider, start) {
 };
 
 Gantt.prototype.addTaskBarText = function(container, record, size) {
-    if (size >= 4) {
+    var dateStr = this.formatShortDate(record.start) + ' → ' + this.formatShortDate(record.end);
+    if (size >= 8) {
+        container.html($('<span>').text(record.progress + ' - #' + record.id + ' ' + record.title + '  (' + dateStr + ')'));
+    }
+    else if (size >= 4) {
         container.html($('<span>').text(record.progress + ' - #' + record.id + ' ' + record.title));
     }
     else if (size >= 2) {
         container.html($('<span>').text(record.progress));
     }
+};
+
+Gantt.prototype.formatShortDate = function(date) {
+    var monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return monthNames[date.getMonth()] + ' ' + date.getDate();
+};
+
+Gantt.prototype.dayName = function(date) {
+    return ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][date.getDay()];
+};
+
+Gantt.prototype.getBarTitleText = function(record) {
+    var parts = [];
+
+    if (record.type === 'task') {
+        parts.push('#' + record.id + ' ' + record.title);
+        parts.push(record.column_title + ' (' + record.progress + ')');
+        if (record.assignee) parts.push(record.assignee);
+        if (record.category) parts.push(record.category);
+    } else {
+        parts.push(record.title);
+    }
+
+    if (record.not_defined) {
+        parts.push($(this.options.container).data("label-not-defined"));
+    } else {
+        var days = this.daysBetween(record.start, record.end) + 1;
+        var startStr = this.dayName(record.start) + ' ' + $.datepicker.formatDate(this.dateFormat, record.start);
+        var endStr = this.dayName(record.end) + ' ' + $.datepicker.formatDate(this.dateFormat, record.end);
+        parts.push(startStr + ' → ' + endStr + ' (' + days + 'd)');
+    }
+
+    return parts.join('\n');
 };
 
 // Get tooltip for vertical header
@@ -236,12 +302,22 @@ Gantt.prototype.getVerticalHeaderTooltip = function(record) {
 
 Gantt.prototype.getTaskTooltip = function(record) {
     var assigneeLabel = $(this.options.container).data("label-assignee");
+    var categoryLabel = $(this.options.container).data("label-category") || "Category:";
+    var priorityLabel = $(this.options.container).data("label-priority") || "Priority:";
     var tooltip = $('<span>')
         .append($('<strong>').text(record.column_title + ' (' + record.progress + ')'))
         .append($('<br>'))
         .append($('<span>').text('#' + record.id + ' ' + record.title))
         .append($('<br>'))
         .append($('<span>').text(assigneeLabel + ' ' + (record.assignee ? record.assignee : '')));
+
+    if (record.category) {
+        tooltip.append($('<br>')).append($('<span>').text(categoryLabel + ' ' + record.category));
+    }
+
+    if (record.priority) {
+        tooltip.append($('<br>')).append($('<span>').text(priorityLabel + ' ' + record.priority));
+    }
 
     return this.getTooltipFooter(record, tooltip);
 };
@@ -274,9 +350,9 @@ Gantt.prototype.getTooltipFooter = function(record, tooltip) {
         tooltip.append($('<br>')).append($('<em>').text(notDefinedLabel));
     } else {
         tooltip.append($('<br>'));
-        tooltip.append($('<strong>').text(startDateLabel + ' ' + $.datepicker.formatDate('yy-mm-dd', record.start)));
+        tooltip.append($('<strong>').text(startDateLabel + ' ' + $.datepicker.formatDate(this.dateFormat, record.start)));
         tooltip.append($('<br>'));
-        tooltip.append($('<strong>').text(startEndLabel + ' ' + $.datepicker.formatDate('yy-mm-dd', record.end)));
+        tooltip.append($('<strong>').text(startEndLabel + ' ' + $.datepicker.formatDate(this.dateFormat, record.end)));
     }
 
     return tooltip;
@@ -315,35 +391,231 @@ Gantt.prototype.setBarColor = function(block, record) {
 };
 
 // Setup jquery-ui resizable
-Gantt.prototype.listenForBlockResize = function(startDate) {
+Gantt.prototype.listenForBlockResize = function() {
     var self = this;
 
     jQuery("div.ganttview-block", this.options.container).resizable({
         grid: this.options.cellWidth,
         handles: "e,w",
         delay: 300,
+        start: function(event) {
+            self._lastMouseX = event.clientX;
+            self.showDateIndicator(jQuery(this), self._startDate);
+            self.startAutoScroll();
+        },
+        resize: function(event) {
+            self._lastMouseX = event.clientX;
+            self.updateDateIndicator(jQuery(this), self._startDate);
+        },
         stop: function() {
+            self.stopAutoScroll();
+            self.hideDateIndicator();
             var block = jQuery(this);
-            self.updateDataAndPosition(block, startDate);
+            self.updateDataAndPosition(block, self._startDate);
             self.saveRecord(block.data("record"));
         }
     });
 };
 
 // Setup jquery-ui drag and drop
-Gantt.prototype.listenForBlockMove = function(startDate) {
+Gantt.prototype.listenForBlockMove = function() {
     var self = this;
 
     jQuery("div.ganttview-block", this.options.container).draggable({
         axis: "x",
         delay: 300,
         grid: [this.options.cellWidth, this.options.cellWidth],
+        start: function(event) {
+            self._lastMouseX = event.clientX;
+            self.showDateIndicator(jQuery(this), self._startDate);
+            self.startAutoScroll();
+        },
+        drag: function(event) {
+            self._lastMouseX = event.clientX;
+            self.updateDateIndicator(jQuery(this), self._startDate);
+        },
         stop: function() {
+            self.stopAutoScroll();
+            self.hideDateIndicator();
             var block = jQuery(this);
-            self.updateDataAndPosition(block, startDate);
+            self.updateDataAndPosition(block, self._startDate);
             self.saveRecord(block.data("record"));
         }
     });
+};
+
+// Show floating date indicator during drag/resize
+Gantt.prototype.showDateIndicator = function(block, startDate) {
+    if (!this._dateIndicator) {
+        this._dateIndicator = jQuery("<div>", { "class": "ganttview-date-indicator" });
+        jQuery("body").append(this._dateIndicator);
+    }
+    this.updateDateIndicator(block, startDate);
+    this._dateIndicator.stop(true).fadeIn(120);
+};
+
+Gantt.prototype.updateDateIndicator = function(block, startDate) {
+    if (!this._dateIndicator) return;
+
+    var container = jQuery("div.ganttview-slide-container", this.options.container);
+    var scroll = container.scrollLeft();
+    var offset = block.offset().left - container.offset().left - 1 + scroll;
+
+    var daysFromStart = Math.round(offset / this.options.cellWidth);
+    var newStart = this.addDays(this.cloneDate(startDate), daysFromStart);
+
+    var width = block.outerWidth();
+    var numberOfDays = Math.round(width / this.options.cellWidth) - 1;
+    var newEnd = this.addDays(this.cloneDate(newStart), numberOfDays);
+
+    var startStr = this.dayName(newStart) + ' ' + $.datepicker.formatDate(this.dateFormat, newStart);
+    var endStr = this.dayName(newEnd) + ' ' + $.datepicker.formatDate(this.dateFormat, newEnd);
+    var days = numberOfDays + 1;
+
+    this._dateIndicator.text(startStr + '  →  ' + endStr + '  (' + days + 'd)');
+
+    var rect = block[0].getBoundingClientRect();
+    this._dateIndicator.css({
+        left: (rect.left + rect.width / 2) + 'px',
+        top: (rect.top - 36) + 'px'
+    });
+};
+
+Gantt.prototype.hideDateIndicator = function() {
+    if (this._dateIndicator) {
+        this._dateIndicator.stop(true).fadeOut(200);
+    }
+};
+
+// Auto-scroll the slide container when dragging near edges
+Gantt.prototype.startAutoScroll = function() {
+    var self = this;
+    var container = jQuery("div.ganttview-slide-container", this.options.container);
+
+    this._autoScrollTimer = setInterval(function() {
+        if (self._lastMouseX === undefined) return;
+
+        var rect = container[0].getBoundingClientRect();
+        var mx = self._lastMouseX;
+        var edge = 60;
+        var maxSpeed = 8;
+        var scrollLeft = container.scrollLeft();
+        var maxScrollLeft = container[0].scrollWidth - container[0].clientWidth;
+
+        if (mx > rect.right - edge) {
+            var factor = Math.min(1, (mx - (rect.right - edge)) / edge);
+            var speed = Math.ceil(maxSpeed * factor);
+            if (scrollLeft >= maxScrollLeft - 5) {
+                self.expandRight(14);
+            }
+            container.scrollLeft(scrollLeft + speed);
+        }
+        else if (mx < rect.left + edge) {
+            var factor = Math.min(1, ((rect.left + edge) - mx) / edge);
+            var speed = Math.ceil(maxSpeed * factor);
+            if (scrollLeft <= 5) {
+                self.expandLeft(14);
+            }
+            container.scrollLeft(Math.max(0, scrollLeft - speed));
+        }
+    }, 20);
+};
+
+Gantt.prototype.stopAutoScroll = function() {
+    if (this._autoScrollTimer) {
+        clearInterval(this._autoScrollTimer);
+        this._autoScrollTimer = null;
+    }
+    delete this._lastMouseX;
+};
+
+Gantt.prototype.getMonthLabel = function(date) {
+    var regional = $.datepicker.regional[$("html").attr('lang')];
+    var names = regional ? regional.monthNames : ['January','February','March','April','May','June','July','August','September','October','November','December'];
+    return names[date.getMonth()] + " " + date.getFullYear();
+};
+
+// Append date columns to the right
+Gantt.prototype.expandRight = function(count) {
+    var container = jQuery("div.ganttview-slide-container", this.options.container);
+    var monthsDiv = jQuery(".ganttview-hzheader-months", container);
+    var daysDiv = jQuery(".ganttview-hzheader-days", container);
+    var gridRows = jQuery(".ganttview-grid-row", container);
+
+    for (var i = 0; i < count; i++) {
+        this._endDate = this.addDays(this.cloneDate(this._endDate), 1);
+        var date = this.cloneDate(this._endDate);
+
+        daysDiv.append(jQuery("<div>", { "class": "ganttview-hzheader-day" }).text(date.getDate()));
+
+        var cellDiv = jQuery("<div>", { "class": "ganttview-grid-row-cell" });
+        if (this.isWeekend(date)) cellDiv.addClass("ganttview-weekend");
+        if (this.isToday(date)) cellDiv.addClass("ganttview-today");
+        gridRows.each(function() { jQuery(this).append(cellDiv.clone()); });
+
+        var label = this.getMonthLabel(date);
+        var lastMonth = monthsDiv.children().last();
+        if (lastMonth.length && lastMonth.text().trim() === label) {
+            lastMonth.css("width", (parseInt(lastMonth.css("width")) + this.options.cellWidth) + "px");
+        } else {
+            monthsDiv.append(jQuery("<div>", {
+                "class": "ganttview-hzheader-month",
+                "css": { "width": (this.options.cellWidth - 1) + "px" }
+            }).text(label));
+        }
+    }
+    this.updateGridWidths();
+};
+
+// Prepend date columns to the left
+Gantt.prototype.expandLeft = function(count) {
+    var self = this;
+    var container = jQuery("div.ganttview-slide-container", this.options.container);
+    var monthsDiv = jQuery(".ganttview-hzheader-months", container);
+    var daysDiv = jQuery(".ganttview-hzheader-days", container);
+    var gridRows = jQuery(".ganttview-grid-row", container);
+
+    for (var i = 0; i < count; i++) {
+        this._startDate = this.addDays(this._startDate, -1);
+        var date = this.cloneDate(this._startDate);
+
+        daysDiv.prepend(jQuery("<div>", { "class": "ganttview-hzheader-day" }).text(date.getDate()));
+
+        var cellDiv = jQuery("<div>", { "class": "ganttview-grid-row-cell" });
+        if (this.isWeekend(date)) cellDiv.addClass("ganttview-weekend");
+        if (this.isToday(date)) cellDiv.addClass("ganttview-today");
+        gridRows.each(function() { jQuery(this).prepend(cellDiv.clone()); });
+
+        var label = this.getMonthLabel(date);
+        var firstMonth = monthsDiv.children().first();
+        if (firstMonth.length && firstMonth.text().trim() === label) {
+            firstMonth.css("width", (parseInt(firstMonth.css("width")) + this.options.cellWidth) + "px");
+        } else {
+            monthsDiv.prepend(jQuery("<div>", {
+                "class": "ganttview-hzheader-month",
+                "css": { "width": (this.options.cellWidth - 1) + "px" }
+            }).text(label));
+        }
+    }
+    this.updateGridWidths();
+
+    var shift = count * this.options.cellWidth;
+    container.scrollLeft(container.scrollLeft() + shift);
+    jQuery("div.ganttview-block", this.options.container).each(function() {
+        var ml = parseInt(jQuery(this).css("margin-left")) || 0;
+        jQuery(this).css("margin-left", (ml + shift) + "px");
+    });
+};
+
+Gantt.prototype.updateGridWidths = function() {
+    var container = jQuery("div.ganttview-slide-container", this.options.container);
+    var gridRows = jQuery(".ganttview-grid-row", container);
+    var totalCells = gridRows.first().children().length;
+    var totalW = totalCells * this.options.cellWidth;
+    jQuery(".ganttview-hzheader-months", container).css("width", totalW + "px");
+    jQuery(".ganttview-hzheader-days", container).css("width", totalW + "px");
+    jQuery(".ganttview-grid", container).css("width", totalW + "px");
+    gridRows.css("width", totalW + "px");
 };
 
 // Update the record data and the position on the chart
@@ -384,6 +656,7 @@ Gantt.prototype.updateDataAndPosition = function(block, startDate) {
         this.addTaskBarText(jQuery("div.ganttview-block-text", block), record, numberOfDays);
     }
 
+    block.attr("title", this.getBarTitleText(record));
     block.data("record", record);
 
     // Remove top and left properties to avoid incorrect block positioning,
