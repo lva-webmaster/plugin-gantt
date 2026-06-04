@@ -23,7 +23,8 @@ div.ganttview-hzheader-month {
 }
 
 div.ganttview-hzheader-day {
-    width: 20px;
+    box-sizing: border-box;
+    width: 21px;
     height: 20px;
     border-right: 1px solid #f0f0f0;
     border-top: 1px solid #d0d0d0;
@@ -78,9 +79,10 @@ div.ganttview-slide-container {
 }
 
 div.ganttview-grid-row-cell {
-    width: 20px;
+    box-sizing: border-box;
+    width: 21px;
     height: 31px;
-    border-right: 1px solid #f0f0f0;
+    border-right: 1px solid #d8d8d8;
     border-top: 1px solid #f0f0f0;
 }
 
@@ -178,4 +180,23 @@ div.ganttview-progress-bar {
     white-space: nowrap;
     pointer-events: none;
     transform: translateX(-50%);
+}
+
+.ganttview-save-indicator {
+    display: none;
+    position: fixed;
+    bottom: 20px;
+    left: 20px;
+    z-index: 10000;
+    padding: 8px 16px;
+    border-radius: 4px;
+    background: #2ecc71;
+    color: #fff;
+    font-size: 0.85em;
+    font-weight: 600;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+
+.ganttview-save-indicator.error {
+    background: #e74c3c;
 }

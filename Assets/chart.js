@@ -16,16 +16,58 @@ var Gantt = function() {
     };
 };
 
+// Convert a block's pixel position and width to a day index and cell count
+Gantt.prototype.readBlockPosition = function(block) {
+    var container = jQuery("div.ganttview-slide-container", this.options.container);
+    var borderLeft = parseFloat(container.css("border-left-width")) || 0;
+    var scroll = container.scrollLeft();
+    var pixelOffset = block.offset().left - container.offset().left - borderLeft + scroll;
+    var width = block.outerWidth();
+    var dayIndex = Math.round(pixelOffset / this.options.cellWidth);
+    var cellCount = Math.round((width + 1) / this.options.cellWidth);
+    if (cellCount < 1) cellCount = 1;
+    return { dayIndex: dayIndex, cellCount: cellCount };
+};
+
+// Convert a day index and cell count to pixel margin-left and width
+Gantt.prototype.calcBlockPixels = function(dayIndex, cellCount) {
+    return {
+        marginLeft: dayIndex * this.options.cellWidth,
+        width: (cellCount * this.options.cellWidth) - 1
+    };
+};
+
 // Save record after a resize or move
 Gantt.prototype.saveRecord = function(record) {
+    var self = this;
     $.ajax({
         cache: false,
         url: $(this.options.container).data("save-url"),
         contentType: "application/json",
         type: "POST",
         processData: false,
-        data: JSON.stringify(record)
+        data: JSON.stringify(record),
+        success: function() {
+            self.showSaveStatus('Saved');
+        },
+        error: function() {
+            self.showSaveStatus('Save failed', true);
+        }
     });
+};
+
+Gantt.prototype.showSaveStatus = function(message, isError) {
+    if (!this._saveIndicator) {
+        this._saveIndicator = jQuery("<div>", { "class": "ganttview-save-indicator" });
+        jQuery("body").append(this._saveIndicator);
+    }
+    this._saveIndicator
+        .text(message)
+        .toggleClass('error', !!isError)
+        .stop(true)
+        .fadeIn(100)
+        .delay(1500)
+        .fadeOut(400);
 };
 
 // Build the Gantt chart
@@ -217,17 +259,18 @@ Gantt.prototype.addBlocks = function(slider, start) {
         var series = this.data[i];
         var size = this.daysBetween(series.start, series.end) + 1;
         var offset = this.daysBetween(start, series.start);
+        var blockWidth = (size * this.options.cellWidth) - 1;
         var text = jQuery("<div>", {
           "class": "ganttview-block-text",
           "css": {
-              "width": ((size * this.options.cellWidth) - 19) + "px"
+              "width": (blockWidth - 10) + "px"
           }
         });
 
         var block = jQuery("<div>", {
             "class": "ganttview-block" + (this.options.allowMoves ? " ganttview-block-movable" : ""),
             "css": {
-                "width": ((size * this.options.cellWidth) - 9) + "px",
+                "width": blockWidth + "px",
                 "margin-left": (offset * this.options.cellWidth) + "px"
             }
         }).append(text);
@@ -395,22 +438,49 @@ Gantt.prototype.listenForBlockResize = function() {
     var self = this;
 
     jQuery("div.ganttview-block", this.options.container).resizable({
-        grid: this.options.cellWidth,
+        grid: [this.options.cellWidth, this.options.cellWidth],
         handles: "e,w",
         delay: 300,
-        start: function(event) {
-            self._lastMouseX = event.clientX;
+        minWidth: this.options.cellWidth - 1,
+        start: function() {
             self.showDateIndicator(jQuery(this), self._startDate);
-            self.startAutoScroll();
         },
-        resize: function(event) {
-            self._lastMouseX = event.clientX;
-            self.updateDateIndicator(jQuery(this), self._startDate);
+        resize: function(event, ui) {
+            var marginLeft = parseInt(jQuery(this).css("margin-left")) || 0;
+            var minLeft = -marginLeft;
+            if (ui.position.left < minLeft) {
+                ui.size.width += (ui.position.left - minLeft);
+                ui.position.left = minLeft;
+            }
+
+            var effectiveLeft = marginLeft + ui.position.left;
+            var effectiveWidth = ui.size.width;
+            var dayIndex = Math.round(effectiveLeft / self.options.cellWidth);
+            var cellCount = Math.round((effectiveWidth + 1) / self.options.cellWidth);
+            if (cellCount < 1) cellCount = 1;
+            self.showDateIndicatorDirect(jQuery(this), dayIndex, cellCount, self._startDate);
+
+            var px = self.calcBlockPixels(dayIndex, cellCount);
+            var container = jQuery("div.ganttview-slide-container", self.options.container);
+            var gridWidth = jQuery(".ganttview-grid-row", container).first().children().length * self.options.cellWidth;
+            if (px.marginLeft + px.width > gridWidth - 2 * self.options.cellWidth) {
+                self.expandRight(14);
+            }
         },
         stop: function() {
-            self.stopAutoScroll();
             self.hideDateIndicator();
             var block = jQuery(this);
+            var container = jQuery("div.ganttview-slide-container", self.options.container);
+
+            var pos = self.readBlockPosition(block);
+            var px = self.calcBlockPixels(pos.dayIndex, pos.cellCount);
+            var gridWidth = jQuery(".ganttview-grid-row", container).first().children().length * self.options.cellWidth;
+            var blockRight = px.marginLeft + px.width;
+            if (blockRight > gridWidth) {
+                var daysNeeded = Math.ceil((blockRight - gridWidth) / self.options.cellWidth) + 3;
+                self.expandRight(daysNeeded);
+            }
+
             self.updateDataAndPosition(block, self._startDate);
             self.saveRecord(block.data("record"));
         }
@@ -426,6 +496,7 @@ Gantt.prototype.listenForBlockMove = function() {
         delay: 300,
         grid: [this.options.cellWidth, this.options.cellWidth],
         start: function(event) {
+            self._activeBlock = jQuery(this);
             self._lastMouseX = event.clientX;
             self.showDateIndicator(jQuery(this), self._startDate);
             self.startAutoScroll();
@@ -437,6 +508,7 @@ Gantt.prototype.listenForBlockMove = function() {
         stop: function() {
             self.stopAutoScroll();
             self.hideDateIndicator();
+            self._activeBlock = null;
             var block = jQuery(this);
             self.updateDataAndPosition(block, self._startDate);
             self.saveRecord(block.data("record"));
@@ -457,20 +529,13 @@ Gantt.prototype.showDateIndicator = function(block, startDate) {
 Gantt.prototype.updateDateIndicator = function(block, startDate) {
     if (!this._dateIndicator) return;
 
-    var container = jQuery("div.ganttview-slide-container", this.options.container);
-    var scroll = container.scrollLeft();
-    var offset = block.offset().left - container.offset().left - 1 + scroll;
-
-    var daysFromStart = Math.round(offset / this.options.cellWidth);
-    var newStart = this.addDays(this.cloneDate(startDate), daysFromStart);
-
-    var width = block.outerWidth();
-    var numberOfDays = Math.round(width / this.options.cellWidth) - 1;
-    var newEnd = this.addDays(this.cloneDate(newStart), numberOfDays);
+    var pos = this.readBlockPosition(block);
+    var newStart = this.addDays(this.cloneDate(startDate), pos.dayIndex);
+    var newEnd = this.addDays(this.cloneDate(newStart), pos.cellCount - 1);
 
     var startStr = this.dayName(newStart) + ' ' + $.datepicker.formatDate(this.dateFormat, newStart);
     var endStr = this.dayName(newEnd) + ' ' + $.datepicker.formatDate(this.dateFormat, newEnd);
-    var days = numberOfDays + 1;
+    var days = pos.cellCount;
 
     this._dateIndicator.text(startStr + '  →  ' + endStr + '  (' + days + 'd)');
 
@@ -479,6 +544,28 @@ Gantt.prototype.updateDateIndicator = function(block, startDate) {
         left: (rect.left + rect.width / 2) + 'px',
         top: (rect.top - 36) + 'px'
     });
+};
+
+Gantt.prototype.showDateIndicatorDirect = function(block, dayIndex, cellCount, startDate) {
+    if (!this._dateIndicator) {
+        this._dateIndicator = jQuery("<div>", { "class": "ganttview-date-indicator" });
+        jQuery("body").append(this._dateIndicator);
+    }
+
+    var newStart = this.addDays(this.cloneDate(startDate), dayIndex);
+    var newEnd = this.addDays(this.cloneDate(newStart), cellCount - 1);
+
+    var startStr = this.dayName(newStart) + ' ' + $.datepicker.formatDate(this.dateFormat, newStart);
+    var endStr = this.dayName(newEnd) + ' ' + $.datepicker.formatDate(this.dateFormat, newEnd);
+
+    this._dateIndicator.text(startStr + '  →  ' + endStr + '  (' + cellCount + 'd)');
+
+    var rect = block[0].getBoundingClientRect();
+    this._dateIndicator.css({
+        left: (rect.left + rect.width / 2) + 'px',
+        top: (rect.top - 36) + 'px'
+    });
+    this._dateIndicator.stop(true).fadeIn(120);
 };
 
 Gantt.prototype.hideDateIndicator = function() {
@@ -515,6 +602,7 @@ Gantt.prototype.startAutoScroll = function() {
             var speed = Math.ceil(maxSpeed * factor);
             if (scrollLeft <= 5) {
                 self.expandLeft(14);
+                scrollLeft = container.scrollLeft();
             }
             container.scrollLeft(Math.max(0, scrollLeft - speed));
         }
@@ -601,7 +689,9 @@ Gantt.prototype.expandLeft = function(count) {
 
     var shift = count * this.options.cellWidth;
     container.scrollLeft(container.scrollLeft() + shift);
+    var activeEl = this._activeBlock ? this._activeBlock[0] : null;
     jQuery("div.ganttview-block", this.options.container).each(function() {
+        if (this === activeEl) return;
         var ml = parseInt(jQuery(this).css("margin-left")) || 0;
         jQuery(this).css("margin-left", (ml + shift) + "px");
     });
@@ -620,52 +710,31 @@ Gantt.prototype.updateGridWidths = function() {
 
 // Update the record data and the position on the chart
 Gantt.prototype.updateDataAndPosition = function(block, startDate) {
-    var container = jQuery("div.ganttview-slide-container", this.options.container);
-    var scroll = container.scrollLeft();
-    var offset = block.offset().left - container.offset().left - 1 + scroll;
     var record = block.data("record");
+    var pos = this.readBlockPosition(block);
+    var px = this.calcBlockPixels(pos.dayIndex, pos.cellCount);
 
-    // Restore color for defined block
     record.not_defined = false;
     this.setBarColor(block, record);
 
-    // Set new start date
-    var daysFromStart = Math.round(offset / this.options.cellWidth);
-    var newStart = this.addDays(this.cloneDate(startDate), daysFromStart);
-    if (!record.date_started_not_defined || this.compareDate(newStart, record.start)) {
-        record.start = this.addDays(this.cloneDate(startDate), daysFromStart);
-        record.date_started_not_defined = true;
-    }
-    else if (record.date_started_not_defined) {
-        delete record.start;
-    }
+    record.start = this.addDays(this.cloneDate(startDate), pos.dayIndex);
+    record.end = this.addDays(this.cloneDate(record.start), pos.cellCount - 1);
+    record.date_started_not_defined = false;
+    record.date_due_not_defined = false;
 
-    // Set new end date
-    var width = block.outerWidth();
-    var numberOfDays = Math.round(width / this.options.cellWidth) - 1;
-    var newEnd = this.addDays(this.cloneDate(newStart), numberOfDays);
-    if (!record.date_due_not_defined || this.compareDate(newEnd, record.end)) {
-        record.end = newEnd;
-        record.date_due_not_defined = true;
-    }
-    else if (record.date_due_not_defined) {
-        delete record.end;
-    }
-
-    if (record.type === "task" && numberOfDays > 0) {
-        this.addTaskBarText(jQuery("div.ganttview-block-text", block), record, numberOfDays);
+    if (record.type === "task" && pos.cellCount > 1) {
+        this.addTaskBarText(jQuery("div.ganttview-block-text", block), record, pos.cellCount);
     }
 
     block.attr("title", this.getBarTitleText(record));
     block.data("record", record);
 
-    // Remove top and left properties to avoid incorrect block positioning,
-    // set position to relative to keep blocks relative to scrollbar when scrolling
     block
         .css("top", "")
         .css("left", "")
         .css("position", "relative")
-        .css("margin-left", offset + "px");
+        .css("margin-left", px.marginLeft + "px")
+        .css("width", px.width + "px");
 };
 
 // Creates a 3 dimensional array [year][month][day] of every day
@@ -739,8 +808,8 @@ Gantt.prototype.getDateRange = function(minDays) {
         maxEnd = this.addDays(this.cloneDate(minStart), minDays);
     }
 
-    // Always start one day before the minStart
-    minStart.setDate(minStart.getDate() - 1);
+    // Start a week before the minStart to give room for resizing
+    minStart.setDate(minStart.getDate() - 7);
 
     return [minStart, maxEnd];
 };
