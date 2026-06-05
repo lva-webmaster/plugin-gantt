@@ -24,7 +24,11 @@ class Plugin extends Base
         $this->template->hook->attach('template:project-list:menu:after', 'Gantt:project_list/menu');
         $this->template->hook->attach('template:config:sidebar', 'Gantt:config/sidebar');
 
-        $this->hook->on('template:layout:js', array('template' => 'plugins/Gantt/Assets/chart.js'));
+        $this->hook->on('template:layout:js', array('template' => 'plugins/Gantt/Assets/gantt/GanttBase.js'));
+        $this->hook->on('template:layout:js', array('template' => 'plugins/Gantt/Assets/gantt/GanttRenderer.js'));
+        $this->hook->on('template:layout:js', array('template' => 'plugins/Gantt/Assets/gantt/GanttDependencies.js'));
+        $this->hook->on('template:layout:js', array('template' => 'plugins/Gantt/Assets/gantt/GanttInteraction.js'));
+        $this->hook->on('template:layout:js', array('template' => 'plugins/Gantt/Assets/gantt/Gantt.js'));
         $this->hook->on('template:layout:js', array('template' => 'plugins/Gantt/Assets/gantt.js'));
         $this->hook->on('template:layout:css', array('template' => 'plugins/Gantt/Assets/gantt.css'));
 

@@ -2,12 +2,26 @@
     <?= $this->projectHeader->render($project, 'TaskGanttController', 'show', false, 'Gantt') ?>
     <div class="menu-inline">
         <ul>
-            <li <?= $sorting === 'board' ? 'class="active"' : '' ?>>
-                <?= $this->url->icon('sort-numeric-asc', t('Sort by position'), 'TaskGanttController', 'show', array('project_id' => $project['id'], 'sorting' => 'board', 'plugin' => 'Gantt')) ?>
+            <?php
+                $sorts = array(
+                    'board'    => array('icon' => 'th-list',       'label' => t('Board position')),
+                    'date'     => array('icon' => 'calendar',      'label' => t('Start date')),
+                    'due'      => array('icon' => 'clock-o',       'label' => t('Due date')),
+                    'priority' => array('icon' => 'flag',          'label' => t('Priority')),
+                    'assignee' => array('icon' => 'user',          'label' => t('Assignee')),
+                    'title'    => array('icon' => 'font',          'label' => t('Title')),
+                );
+                foreach ($sorts as $key => $sort):
+                    $isActive = ($sorting === $key);
+                    $nextDir = ($isActive && $direction === 'asc') ? 'desc' : 'asc';
+                    $arrow = $isActive ? ($direction === 'asc' ? ' <i class="fa fa-caret-up"></i>' : ' <i class="fa fa-caret-down"></i>') : '';
+            ?>
+            <li <?= $isActive ? 'class="active"' : '' ?>>
+                <a href="<?= $this->url->href('TaskGanttController', 'show', array('project_id' => $project['id'], 'sorting' => $key, 'direction' => $nextDir, 'plugin' => 'Gantt')) ?>">
+                    <i class="fa fa-<?= $sort['icon'] ?>"></i> <?= $sort['label'] ?><?= $arrow ?>
+                </a>
             </li>
-            <li <?= $sorting === 'date' ? 'class="active"' : '' ?>>
-                <?= $this->url->icon('sort-amount-asc', t('Sort by date'), 'TaskGanttController', 'show', array('project_id' => $project['id'], 'sorting' => 'date', 'plugin' => 'Gantt')) ?>
-            </li>
+            <?php endforeach ?>
             <li>
                 <?= $this->modal->large('plus', t('Add task'), 'TaskCreationController', 'show', array('project_id' => $project['id'])) ?>
             </li>

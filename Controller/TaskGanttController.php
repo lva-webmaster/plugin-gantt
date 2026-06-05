@@ -23,16 +23,39 @@ class TaskGanttController extends BaseController
         $project = $this->getProject();
         $search = $this->helper->projectHeader->getSearchQuery($project);
         $sorting = $this->request->getStringParam('sorting', '');
+        $direction = $this->request->getStringParam('direction', '');
         $filter = $this->taskLexer->build($search)->withFilter(new TaskProjectFilter($project['id']));
 
-        if($sorting === '') {
-          $sorting = $this->configModel->get('gantt_task_sort', 'board');
+        if ($sorting === '') {
+            $sorting = $this->configModel->get('gantt_task_sort', 'board');
+        }
+        if ($direction === '') {
+            $direction = 'asc';
         }
 
-        if ($sorting === 'date') {
-            $filter->getQuery()->asc(TaskModel::TABLE.'.date_started')->asc(TaskModel::TABLE.'.date_creation');
-        } else {
-            $filter->getQuery()->asc('column_position')->asc(TaskModel::TABLE.'.position');
+        $dir = $direction === 'desc' ? 'desc' : 'asc';
+        $query = $filter->getQuery();
+
+        switch ($sorting) {
+            case 'date':
+                $query->$dir(TaskModel::TABLE.'.date_started')->asc(TaskModel::TABLE.'.date_creation');
+                break;
+            case 'due':
+                $query->$dir(TaskModel::TABLE.'.date_due')->asc(TaskModel::TABLE.'.date_started');
+                break;
+            case 'priority':
+                $query->$dir(TaskModel::TABLE.'.priority')->asc(TaskModel::TABLE.'.position');
+                break;
+            case 'assignee':
+                $query->$dir('assignee_name')->$dir('assignee_username')->asc(TaskModel::TABLE.'.position');
+                break;
+            case 'title':
+                $query->$dir(TaskModel::TABLE.'.title');
+                break;
+            default:
+                $query->$dir('column_position')->$dir(TaskModel::TABLE.'.position');
+                $sorting = 'board';
+                break;
         }
 
         $hasSubtaskdate = class_exists('\Kanboard\Plugin\Subtaskdate\Plugin');
@@ -42,6 +65,7 @@ class TaskGanttController extends BaseController
             'title' => $project['name'],
             'description' => $this->helper->projectHeader->getDescription($project),
             'sorting' => $sorting,
+            'direction' => $dir,
             'tasks' => $filter->format($this->taskGanttFormatter),
             'has_subtaskdate' => $hasSubtaskdate,
         )));
