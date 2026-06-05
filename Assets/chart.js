@@ -19,20 +19,100 @@ var Gantt = function() {
 // Convert a block's pixel position and width to a day index and cell count
 Gantt.prototype.readBlockPosition = function(block) {
     var el = block[0];
-    var pixelOffset = (parseInt(el.style.marginLeft) || 0) + (parseInt(el.style.left) || 0);
-    var width = parseInt(el.style.width) || block.outerWidth();
-    var dayIndex = Math.round(pixelOffset / this.options.cellWidth);
-    var cellCount = Math.round((width + 1) / this.options.cellWidth);
-    if (cellCount < 1) cellCount = 1;
-    return { dayIndex: dayIndex, cellCount: cellCount };
+    var pixelLeft = (parseInt(el.style.marginLeft) || 0) + (parseInt(el.style.left) || 0);
+    var pixelWidth = parseInt(el.style.width) || block.outerWidth();
+    var pixelRight = pixelLeft + pixelWidth + 1;
+
+    var pos = this._cellPositions;
+    if (pos && pos.length > 0) {
+        var dayIndex = 0, endIndex = 0;
+        var bestDist = Infinity;
+        for (var i = 0; i < pos.length; i++) {
+            var d = Math.abs(pos[i] - pixelLeft);
+            if (d < bestDist) { bestDist = d; dayIndex = i; }
+            if (pos[i] > pixelLeft + 10) break;
+        }
+        bestDist = Infinity;
+        for (var j = dayIndex; j < pos.length; j++) {
+            var d2 = Math.abs(pos[j] - pixelRight);
+            if (d2 < bestDist) { bestDist = d2; endIndex = j; }
+            if (pos[j] > pixelRight + 10) break;
+        }
+        var cellCount = endIndex - dayIndex;
+        if (cellCount < 1) cellCount = 1;
+        return { dayIndex: dayIndex, cellCount: cellCount };
+    }
+
+    var cw = this.options.cellWidth;
+    var dayIndex2 = Math.round(pixelLeft / cw);
+    var cellCount2 = Math.round((pixelWidth + 1) / cw);
+    if (cellCount2 < 1) cellCount2 = 1;
+    return { dayIndex: dayIndex2, cellCount: cellCount2 };
+};
+
+// Cache actual rendered cell positions after grid is in the DOM
+Gantt.prototype.measureCellWidth = function() {
+    var container = jQuery("div.ganttview-slide-container", this.options.container);
+    var cells = container.find(".ganttview-grid-row:first .ganttview-grid-row-cell");
+    var cRect = container[0].getBoundingClientRect();
+    var scroll = container.scrollLeft();
+
+    this._cellPositions = [];
+    for (var i = 0; i < cells.length; i++) {
+        var r = cells[i].getBoundingClientRect();
+        this._cellPositions.push(Math.round(r.left - cRect.left + scroll));
+    }
+    if (cells.length > 0) {
+        var last = cells[cells.length - 1].getBoundingClientRect();
+        this._cellEndPosition = Math.round(last.right - cRect.left + scroll);
+    }
+
+    if (cells.length >= 2) {
+        this._renderedCellWidth = this._cellPositions[1] - this._cellPositions[0];
+    } else {
+        this._renderedCellWidth = this.options.cellWidth;
+    }
 };
 
 // Convert a day index and cell count to pixel margin-left and width
 Gantt.prototype.calcBlockPixels = function(dayIndex, cellCount) {
-    return {
-        marginLeft: dayIndex * this.options.cellWidth,
-        width: (cellCount * this.options.cellWidth) - 1
-    };
+    var pos = this._cellPositions;
+    if (pos && pos[dayIndex] !== undefined) {
+        var left = pos[dayIndex];
+        var endIdx = dayIndex + cellCount;
+        var right = (pos[endIdx] !== undefined) ? pos[endIdx] : (pos[pos.length - 1] + this._renderedCellWidth);
+        return { marginLeft: left, width: right - left - 1 };
+    }
+    var cw = this.options.cellWidth;
+    return { marginLeft: dayIndex * cw, width: cellCount * cw - 1 };
+};
+
+// Find the nearest cell position to a pixel offset
+Gantt.prototype.snapToCell = function(pixelOffset) {
+    var pos = this._cellPositions;
+    if (!pos || !pos.length) return pixelOffset;
+    var best = 0, bestDist = Infinity;
+    for (var i = 0; i < pos.length; i++) {
+        var d = Math.abs(pos[i] - pixelOffset);
+        if (d < bestDist) { bestDist = d; best = i; }
+        if (pos[i] > pixelOffset + this.options.cellWidth) break;
+    }
+    return pos[best];
+};
+
+// Re-position all blocks to match actual rendered cell positions
+Gantt.prototype.snapAllBlocks = function() {
+    var self = this;
+    jQuery("div.ganttview-block", this.options.container).each(function() {
+        var block = jQuery(this);
+        var record = block.data("record");
+        if (!record || !record.start || !record.end) return;
+        var dayIndex = self.daysBetween(self._startDate, record.start);
+        var cellCount = self.daysBetween(record.start, record.end) + 1;
+        var px = self.calcBlockPixels(dayIndex, cellCount);
+        this.style.marginLeft = px.marginLeft + "px";
+        this.style.width = px.width + "px";
+    });
 };
 
 // Save record after a resize or move
@@ -72,7 +152,8 @@ Gantt.prototype.showSaveStatus = function(message, isError) {
 Gantt.prototype.show = function() {
     this.data = this.prepareData($(this.options.container).data('records'));
 
-    var minDays = Math.floor((this.options.slideWidth / this.options.cellWidth) + 5);
+    var containerWidth = $(this.options.container).width() - this.options.vHeaderWidth;
+    var minDays = Math.floor(containerWidth / this.options.cellWidth) + 5;
     var range = this.getDateRange(minDays);
     this._startDate = range[0];
     this._endDate = range[1];
@@ -82,6 +163,9 @@ Gantt.prototype.show = function() {
     chart.append(this.renderVerticalHeader());
     chart.append(this.renderSlider(this._startDate, this._endDate));
     container.append(chart);
+
+    this.measureCellWidth();
+    this.snapAllBlocks();
 
     jQuery("div.ganttview-grid-row div.ganttview-grid-row-cell:last-child", container).addClass("last");
     jQuery("div.ganttview-hzheader-days div.ganttview-hzheader-day:last-child", container).addClass("last");
@@ -99,6 +183,17 @@ Gantt.prototype.show = function() {
     this.buildDependencyIndex();
     this.highlightDependencyViolations();
     this.renderDependencyArrows();
+
+    var self = this;
+    var resnapTimer = null;
+    window.addEventListener('resize', function() {
+        clearTimeout(resnapTimer);
+        resnapTimer = setTimeout(function() {
+            self.measureCellWidth();
+            self.snapAllBlocks();
+            self.renderDependencyArrows();
+        }, 150);
+    });
 };
 
 Gantt.prototype.buildDependencyIndex = function() {
@@ -285,7 +380,7 @@ Gantt.prototype.getMinDragPosition = function(block) {
     if (!blockerEnd) return null;
     var minStart = this.addDays(this.cloneDate(blockerEnd), 1);
     var dayIndex = this.daysBetween(this._startDate, minStart);
-    return dayIndex * this.options.cellWidth;
+    return this.calcBlockPixels(dayIndex, 1).marginLeft;
 };
 
 Gantt.prototype.infoTooltip = function(content) {
@@ -448,19 +543,19 @@ Gantt.prototype.addBlocks = function(slider, start) {
         var series = this.data[i];
         var size = this.daysBetween(series.start, series.end) + 1;
         var offset = this.daysBetween(start, series.start);
-        var blockWidth = (size * this.options.cellWidth) - 1;
+        var px = this.calcBlockPixels(offset, size);
         var text = jQuery("<div>", {
           "class": "ganttview-block-text",
           "css": {
-              "width": (blockWidth - 10) + "px"
+              "width": Math.max(0, px.width - 10) + "px"
           }
         });
 
         var block = jQuery("<div>", {
             "class": "ganttview-block" + (this.options.allowMoves ? " ganttview-block-movable" : ""),
             "css": {
-                "width": blockWidth + "px",
-                "margin-left": (offset * this.options.cellWidth) + "px"
+                "width": px.width + "px",
+                "margin-left": px.marginLeft + "px"
             }
         }).append(text);
 
@@ -626,11 +721,12 @@ Gantt.prototype.setBarColor = function(block, record) {
 Gantt.prototype.listenForBlockResize = function() {
     var self = this;
 
+    var rcw = Math.round(this._renderedCellWidth || this.options.cellWidth);
     jQuery("div.ganttview-block", this.options.container).resizable({
-        grid: [this.options.cellWidth, this.options.cellWidth],
+        grid: [rcw, rcw],
         handles: "e,w",
         delay: 300,
-        minWidth: this.options.cellWidth - 1,
+        minWidth: rcw - 1,
         start: function() {
             self._resizeMinLeft = self.getMinDragPosition(jQuery(this));
             self.showDateIndicator(jQuery(this), self._startDate);
@@ -649,9 +745,22 @@ Gantt.prototype.listenForBlockResize = function() {
             }
 
             var effectiveLeft = marginLeft + ui.position.left;
-            var effectiveWidth = ui.size.width;
-            var dayIndex = Math.round(effectiveLeft / self.options.cellWidth);
-            var cellCount = Math.round((effectiveWidth + 1) / self.options.cellWidth);
+            var effectiveRight = effectiveLeft + ui.size.width + 1;
+
+            var snappedLeft = self.snapToCell(effectiveLeft);
+            var snappedRight = self.snapToCell(effectiveRight);
+            if (snappedRight <= snappedLeft) snappedRight = snappedLeft + (self._renderedCellWidth || self.options.cellWidth);
+
+            ui.position.left = snappedLeft - marginLeft;
+            ui.size.width = snappedRight - snappedLeft - 1;
+
+            var pos = self._cellPositions;
+            var dayIndex = 0, endIndex = 0;
+            if (pos) {
+                for (var si = 0; si < pos.length; si++) { if (pos[si] >= snappedLeft - 1) { dayIndex = si; break; } }
+                for (var ei = dayIndex; ei < pos.length; ei++) { if (pos[ei] >= snappedRight - 1) { endIndex = ei; break; } }
+            }
+            var cellCount = endIndex - dayIndex;
             if (cellCount < 1) cellCount = 1;
             self.showDateIndicatorDirect(jQuery(this), dayIndex, cellCount, self._startDate);
 
@@ -691,10 +800,11 @@ Gantt.prototype.listenForBlockResize = function() {
 Gantt.prototype.listenForBlockMove = function() {
     var self = this;
 
+    var rcw = Math.round(this._renderedCellWidth || this.options.cellWidth);
     jQuery("div.ganttview-block", this.options.container).draggable({
         axis: "x",
         delay: 300,
-        grid: [this.options.cellWidth, this.options.cellWidth],
+        grid: [rcw, rcw],
         start: function(event) {
             self._activeBlock = jQuery(this);
             self._lastMouseX = event.clientX;
@@ -703,12 +813,13 @@ Gantt.prototype.listenForBlockMove = function() {
             self.startAutoScroll();
         },
         drag: function(event, ui) {
-            if (self._dragMinLeft !== null) {
-                var marginLeft = parseInt(jQuery(this).css("margin-left")) || 0;
-                var effectiveLeft = marginLeft + ui.position.left;
-                if (effectiveLeft < self._dragMinLeft) {
-                    ui.position.left = self._dragMinLeft - marginLeft;
-                }
+            var marginLeft = parseInt(jQuery(this).css("margin-left")) || 0;
+            var effectiveLeft = marginLeft + ui.position.left;
+            var snapped = self.snapToCell(effectiveLeft);
+            ui.position.left = snapped - marginLeft;
+
+            if (self._dragMinLeft !== null && snapped < self._dragMinLeft) {
+                ui.position.left = self._dragMinLeft - marginLeft;
             }
             self._lastMouseX = event.clientX;
             self.updateDateIndicator(jQuery(this), self._startDate);
@@ -865,6 +976,7 @@ Gantt.prototype.expandRight = function(count) {
         }
     }
     this.updateGridWidths();
+    this.measureCellWidth();
 };
 
 // Prepend date columns to the left
@@ -913,7 +1025,7 @@ Gantt.prototype.updateGridWidths = function() {
     var container = jQuery("div.ganttview-slide-container", this.options.container);
     var gridRows = jQuery(".ganttview-grid-row", container);
     var totalCells = gridRows.first().children().length;
-    var totalW = totalCells * this.options.cellWidth;
+    var totalW = totalCells * this.options.cellWidth + 1;
     jQuery(".ganttview-hzheader-months", container).css("width", totalW + "px");
     jQuery(".ganttview-hzheader-days", container).css("width", totalW + "px");
     jQuery(".ganttview-grid", container).css("width", totalW + "px");

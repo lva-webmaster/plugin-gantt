@@ -1,5 +1,14 @@
-div.ganttview-hzheader-month, div.ganttview-hzheader-day, div.ganttview-vtheader, div.ganttview-vtheader-item-name, div.ganttview-vtheader-series, div.ganttview-grid, div.ganttview-grid-row-cell {
+div.ganttview-vtheader, div.ganttview-vtheader-item-name, div.ganttview-vtheader-series, div.ganttview-grid {
     float: left;
+}
+
+div.ganttview-hzheader-months, div.ganttview-hzheader-days, div.ganttview-grid-row {
+    display: flex;
+    flex-wrap: nowrap;
+}
+
+div.ganttview-hzheader-month, div.ganttview-hzheader-day, div.ganttview-grid-row-cell {
+    flex: none;
 }
 
 div.ganttview-hzheader-month, div.ganttview-hzheader-day {
@@ -23,8 +32,7 @@ div.ganttview-hzheader-month {
 }
 
 div.ganttview-hzheader-day {
-    box-sizing: border-box;
-    width: 21px;
+    width: 20px;
     height: 20px;
     border-right: 1px solid #f0f0f0;
     border-top: 1px solid #d0d0d0;
@@ -79,8 +87,7 @@ div.ganttview-slide-container {
 }
 
 div.ganttview-grid-row-cell {
-    box-sizing: border-box;
-    width: 21px;
+    width: 20px;
     height: 31px;
     border-right: 1px solid #d8d8d8;
     border-top: 1px solid #f0f0f0;
@@ -117,12 +124,14 @@ div.ganttview-today-marker::before {
 }
 
 div.ganttview-blocks {
-    margin-top: 40px;
+    margin-top: 0;
 }
 
 div.ganttview-block-container {
-    height: 28px;
-    padding-top: 4px;
+    height: 32px;
+    padding-top: 3px;
+    box-sizing: border-box;
+    border-top: 1px solid #e0e0e0;
 }
 
 div.ganttview-block {
