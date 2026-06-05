@@ -23,4 +23,22 @@ KB.on('dom.ready', () => {
             }
         });
     }
+
+    var helpBtn = document.getElementById('gantt-help-btn');
+    var helpOverlay = document.getElementById('gantt-help-overlay');
+    if (helpBtn && helpOverlay) {
+        helpBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            helpOverlay.style.display = 'flex';
+        });
+        helpOverlay.addEventListener('click', function(e) {
+            if (e.target === helpOverlay) helpOverlay.style.display = 'none';
+        });
+        helpOverlay.querySelector('.gantt-help-close').addEventListener('click', function() {
+            helpOverlay.style.display = 'none';
+        });
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape' && helpOverlay.style.display !== 'none') helpOverlay.style.display = 'none';
+        });
+    }
 });

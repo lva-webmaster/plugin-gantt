@@ -21,6 +21,8 @@ div.ganttview-grid-row-cell.last, div.ganttview-hzheader-day.last, div.ganttview
 
 div.ganttview {
     border: 1px solid #999;
+    position: relative;
+    margin-top: 10px;
 }
 
 div.ganttview-hzheader-month {
@@ -34,6 +36,7 @@ div.ganttview-hzheader-month {
 .ganttview div.ganttview-hzheader-day {
     width: var(--gantt-cell-width, 20px);
     height: 20px;
+    box-sizing: border-box;
     border-right: 1px solid #f0f0f0;
     border-top: 1px solid #d0d0d0;
     line-height: 20px;
@@ -53,7 +56,8 @@ div.ganttview-vtheader-item {
 
 div.ganttview-vtheader-series-name {
     width: 400px;
-    height: 31px;
+    height: 32px;
+    box-sizing: border-box;
     line-height: 31px;
     padding-left: 3px;
     border-top: 1px solid #d0d0d0;
@@ -136,7 +140,8 @@ div.ganttview-slide-container {
 
 .ganttview div.ganttview-grid-row-cell {
     width: var(--gantt-cell-width, 20px);
-    height: 31px;
+    height: 32px;
+    box-sizing: border-box;
     border-right: 1px solid #d8d8d8;
     border-top: 1px solid #f0f0f0;
 }
@@ -216,6 +221,7 @@ div.ganttview-block-text {
     overflow: hidden;
     text-overflow: ellipsis;
     pointer-events: none;
+    z-index: 2;
 }
 
 .ganttview-block-edit {
@@ -331,6 +337,22 @@ div.ganttview-progress-bar {
     box-shadow: inset 0 0 0 2px #e67e22 !important;
 }
 
+.ganttview div.ganttview-block.ganttview-block-unassigned::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: repeating-linear-gradient(
+        -45deg,
+        transparent,
+        transparent 2px,
+        rgba(255,255,255,0.26) 2px,
+        rgba(255,255,255,0.26) 5px
+    );
+    pointer-events: none;
+    z-index: 1;
+}
+
 /* --- Milestone bar --- */
 
 .ganttview div.ganttview-block.ganttview-milestone {
@@ -412,12 +434,14 @@ div.ganttview-progress-bar {
 }
 
 .ganttview-group-grid-row {
-    border-top: 2px solid #bdc3c7 !important;
     background: #ecf0f1;
 }
 
+.ganttview-group-grid-row > .ganttview-grid-row-cell {
+    border-top: 2px solid #bdc3c7;
+}
+
 .ganttview-group-block-row {
-    border-top: 2px solid #bdc3c7 !important;
     background: #ecf0f1;
 }
 
@@ -429,11 +453,19 @@ div.ganttview-progress-bar {
 
 .ganttview.zoom-week .ganttview-hzheader-day {
     font-size: 0;
-    border-right-color: #f4f4f4;
+    border-right: none;
+}
+
+.ganttview.zoom-week .ganttview-hzheader-day.ganttview-week-start {
+    box-shadow: inset 1px 0 0 #8b6fff;
 }
 
 .ganttview.zoom-week .ganttview-grid-row-cell {
-    border-right-color: #ececec;
+    border-right: none;
+}
+
+.ganttview.zoom-week .ganttview-grid-row-cell.ganttview-week-start {
+    box-shadow: inset 1px 0 0 #8b6fff;
 }
 
 .ganttview.zoom-week .ganttview-hzheader-month {
@@ -456,8 +488,16 @@ div.ganttview-progress-bar {
     border-top-color: #e0e0e0;
 }
 
+.ganttview.zoom-month .ganttview-hzheader-day.ganttview-month-start {
+    box-shadow: inset 1px 0 0 #8b6fff;
+}
+
 .ganttview.zoom-month .ganttview-grid-row-cell {
     border-right: none;
+}
+
+.ganttview.zoom-month .ganttview-grid-row-cell.ganttview-month-start {
+    box-shadow: inset 1px 0 0 #8b6fff;
 }
 
 .ganttview.zoom-month .ganttview-hzheader-month {
@@ -518,7 +558,387 @@ div.ganttview-progress-bar {
 }
 
 .gantt-zoom-btn.active {
-    background: #3498db;
-    border-color: #2980b9;
+    background: #8b6fff;
+    border-color: #7c5ce6;
     color: #fff;
+}
+
+/* --- Toggle toolbar (top-left of gantt chart) --- */
+
+.ganttview-toggle-toolbar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 41px;
+    display: flex;
+    align-items: center;
+    padding: 0 6px;
+    gap: 4px;
+    z-index: 6;
+}
+
+.ganttview.zoom-month .ganttview-toggle-toolbar {
+    height: 25px;
+}
+
+.gantt-toggle-btn {
+    width: 22px;
+    height: 22px;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    background: #fff;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    color: #555;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.gantt-toggle-btn:hover {
+    background: #f0f0f0;
+    border-color: #999;
+}
+
+/* --- Help modal --- */
+
+.gantt-help-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 10001;
+    background: rgba(0,0,0,0.5);
+    align-items: center;
+    justify-content: center;
+}
+
+.gantt-help-modal {
+    background: #fff;
+    border-radius: 8px;
+    width: 800px;
+    max-width: 92vw;
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.3);
+}
+
+.gantt-help-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 24px;
+    border-bottom: 1px solid #e0e0e0;
+    flex-shrink: 0;
+}
+
+.gantt-help-header h2 {
+    margin: 0;
+    font-size: 1.15em;
+    font-weight: 700;
+    color: #333;
+}
+
+.gantt-help-close {
+    background: none;
+    border: none;
+    font-size: 22px;
+    cursor: pointer;
+    color: #999;
+    line-height: 1;
+    padding: 0 4px;
+}
+
+.gantt-help-close:hover {
+    color: #333;
+}
+
+.gantt-help-body {
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 20px 24px 28px;
+}
+
+.gantt-help-section {
+    margin-bottom: 22px;
+}
+
+.gantt-help-section:last-child {
+    margin-bottom: 0;
+}
+
+.gantt-help-section h3 {
+    font-size: 0.95em;
+    font-weight: 700;
+    color: #2c3e50;
+    margin: 0 0 8px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid #eee;
+}
+
+.gantt-help-section h3 i {
+    width: 18px;
+    text-align: center;
+    margin-right: 4px;
+    color: #8b6fff;
+}
+
+.gantt-help-section p {
+    font-size: 0.85em;
+    line-height: 1.55;
+    color: #555;
+    margin: 6px 0;
+}
+
+.gantt-help-table {
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: collapse;
+    margin: 6px 0;
+    font-size: 0.85em;
+}
+
+.gantt-help-table tr {
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.gantt-help-table tr:last-child {
+    border-bottom: none;
+}
+
+.gantt-help-table td {
+    padding: 6px 8px;
+    vertical-align: top;
+    line-height: 1.5;
+    color: #555;
+}
+
+.gantt-help-table .gantt-help-key {
+    width: 150px;
+    font-weight: 600;
+    color: #333;
+    white-space: nowrap;
+}
+
+.gantt-help-table td:last-child {
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+}
+
+/* --- Internal Links Modal --- */
+
+.gantt-link-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 10001;
+    background: rgba(0,0,0,0.5);
+    align-items: center;
+    justify-content: center;
+}
+
+.gantt-link-modal {
+    background: #fff;
+    border-radius: 8px;
+    width: 600px;
+    max-width: 92vw;
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.3);
+}
+
+.gantt-link-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 20px;
+    border-bottom: 1px solid #e0e0e0;
+    flex-shrink: 0;
+}
+
+.gantt-link-header h2 {
+    margin: 0;
+    font-size: 1em;
+    font-weight: 700;
+    color: #333;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+.gantt-link-header h2 i {
+    color: #8b6fff;
+    margin-right: 6px;
+}
+
+.gantt-link-close {
+    background: none;
+    border: none;
+    font-size: 22px;
+    cursor: pointer;
+    color: #999;
+    line-height: 1;
+    padding: 0 4px;
+    flex-shrink: 0;
+}
+
+.gantt-link-close:hover {
+    color: #333;
+}
+
+.gantt-link-body {
+    overflow-y: auto;
+    padding: 16px 20px 20px;
+}
+
+.gantt-link-empty {
+    color: #999;
+    font-size: 0.85em;
+    font-style: italic;
+    padding: 4px 0;
+}
+
+.gantt-link-group {
+    margin-bottom: 12px;
+}
+
+.gantt-link-group:last-child {
+    margin-bottom: 0;
+}
+
+.gantt-link-group-label {
+    font-size: 0.75em;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #8b6fff;
+    margin-bottom: 4px;
+}
+
+.gantt-link-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 5px 8px;
+    border-radius: 4px;
+    transition: background 0.1s;
+}
+
+.gantt-link-row:hover {
+    background: #f5f5f5;
+}
+
+.gantt-link-task-info {
+    font-size: 0.85em;
+    color: #333;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+.gantt-link-task-info strong {
+    color: #555;
+    margin-right: 4px;
+}
+
+.gantt-link-column {
+    display: inline-block;
+    font-size: 0.8em;
+    background: #ecf0f1;
+    color: #7f8c8d;
+    padding: 1px 6px;
+    border-radius: 3px;
+    margin-left: 6px;
+    vertical-align: middle;
+}
+
+.gantt-link-remove-btn {
+    background: none;
+    border: none;
+    color: #ccc;
+    cursor: pointer;
+    font-size: 13px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    flex-shrink: 0;
+    transition: color 0.15s, background 0.15s;
+}
+
+.gantt-link-remove-btn:hover {
+    color: #e74c3c;
+    background: #fdecea;
+}
+
+.gantt-link-divider {
+    border: none;
+    border-top: 1px dashed #ddd;
+    margin: 14px 0;
+}
+
+.gantt-link-form h3 {
+    font-size: 0.85em;
+    font-weight: 700;
+    color: #2c3e50;
+    margin: 0 0 8px;
+}
+
+.gantt-link-form-row {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
+.gantt-link-type-select {
+    font-size: 0.85em;
+    padding: 5px 8px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    background: #fff;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.gantt-link-task-select {
+    font-size: 0.85em;
+    padding: 5px 8px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    background: #fff;
+    cursor: pointer;
+    flex: 1;
+    min-width: 0;
+}
+
+.gantt-link-add-btn {
+    font-size: 0.85em;
+    padding: 5px 14px;
+    border: none;
+    border-radius: 4px;
+    background: #8b6fff;
+    color: #fff;
+    font-weight: 600;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background 0.15s;
+}
+
+.gantt-link-add-btn:hover {
+    background: #7c5ce6;
+}
+
+.gantt-link-add-btn:disabled {
+    background: #b8a8e8;
+    cursor: not-allowed;
+}
+
+.gantt-link-error {
+    font-size: 0.8em;
+    color: #e74c3c;
+    margin-top: 6px;
 }

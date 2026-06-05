@@ -35,18 +35,22 @@ class GanttDependencies extends GanttRenderer {
         svg.setAttribute("class", "ganttview-dep-svg");
         svg.style.cssText = "position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible;z-index:2";
 
+        const compact = this._zoomLevel === 'week' || this._zoomLevel === 'month';
+        const mW = compact ? 5 : 8;
+        const mH = compact ? 4 : 6;
+
         const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
         const makeMarker = (id, color) => {
             const m = document.createElementNS("http://www.w3.org/2000/svg", "marker");
             m.setAttribute("id", id);
-            m.setAttribute("markerWidth", "8");
-            m.setAttribute("markerHeight", "6");
-            m.setAttribute("refX", "8");
-            m.setAttribute("refY", "3");
+            m.setAttribute("markerWidth", String(mW));
+            m.setAttribute("markerHeight", String(mH));
+            m.setAttribute("refX", String(mW));
+            m.setAttribute("refY", String(mH / 2));
             m.setAttribute("orient", "auto");
             m.setAttribute("markerUnits", "userSpaceOnUse");
             const p = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
-            p.setAttribute("points", "0 0, 8 3, 0 6");
+            p.setAttribute("points", `0 0, ${mW} ${mH / 2}, 0 ${mH}`);
             p.style.setProperty("fill", color, "important");
             m.appendChild(p);
             return m;
@@ -80,7 +84,8 @@ class GanttDependencies extends GanttRenderer {
                         const to = getBlockCoords(toBlock);
 
                         const isCritLink = this.isOnCriticalChain && this.isOnCriticalChain(task.id) && this.isOnCriticalChain(depId);
-                        this._appendArrow(svg, from, to, isCritLink ? "#ff4444" : "#555", isCritLink ? 2.5 : 1.5, isCritLink ? "gantt-arrow-critical" : "gantt-arrow");
+                        const sw = isCritLink ? (compact ? 1.5 : 2.5) : (compact ? 0.75 : 1.5);
+                        this._appendArrow(svg, from, to, isCritLink ? "#ff4444" : "#555", sw, isCritLink ? "gantt-arrow-critical" : "gantt-arrow");
                         hasArrows = true;
                     }
                 }
@@ -95,7 +100,7 @@ class GanttDependencies extends GanttRenderer {
                         if (!srcBlock || !srcBlock.is(':visible')) continue;
                         const from = getBlockCoords(srcBlock);
 
-                        this._appendArrow(svg, from, to, "#8e44ad", 2, "gantt-arrow-milestone", "6 3");
+                        this._appendArrow(svg, from, to, "#8e44ad", compact ? 1 : 2, "gantt-arrow-milestone", compact ? "4 2" : "6 3");
                         hasArrows = true;
                     }
                 }

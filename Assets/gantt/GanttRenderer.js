@@ -37,6 +37,14 @@ class GanttRenderer extends GanttBase {
                     title: "Edit"
                 }).append(jQuery("<i>", { "class": "fa fa-edit" })));
 
+                content.append(jQuery("<a>", {
+                    "class": "ganttview-vtheader-edit ganttview-link-btn",
+                    href: "#",
+                    title: "Internal links",
+                    "data-task-id": item.id,
+                    "data-task-title": item.title
+                }).append(jQuery("<i>", { "class": "fa fa-link" })));
+
                 if (item.is_milestone) {
                     content.append(jQuery("<i>", { "class": "fa fa-diamond ganttview-milestone-icon", title: "Milestone" }));
                 }
@@ -123,13 +131,15 @@ class GanttRenderer extends GanttBase {
                 monthsDiv.append(jQuery("<div>", {
                     "class": "ganttview-hzheader-month",
                     css: { width: `${w - 1}px` }
-                }).append(`${$.datepicker.regional[$("html").attr('lang')].monthNames[m]} ${y}`));
+                }).append(`${($.datepicker.regional[$("html").attr('lang')]?.monthNamesShort || ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'])[m]} ${String(y).slice(-2)}`));
 
                 for (const date of dates[y][m]) {
                     const dayDiv = jQuery("<div>", { "class": "ganttview-hzheader-day" });
                     if (zoom === 'day') {
                         dayDiv.append(date.getDate());
                     }
+                    if (date.getDay() === 0) dayDiv.addClass("ganttview-week-start");
+                    if (date.getDate() === 1) dayDiv.addClass("ganttview-month-start");
                     daysDiv.append(dayDiv);
                 }
             }
@@ -155,6 +165,8 @@ class GanttRenderer extends GanttBase {
                     if (this.options.showToday && this.isToday(date)) {
                         cellDiv.addClass("ganttview-today");
                     }
+                    if (date.getDay() === 0) cellDiv.addClass("ganttview-week-start");
+                    if (date.getDate() === 1) cellDiv.addClass("ganttview-month-start");
                     rowDiv.append(cellDiv);
                 }
             }
@@ -277,6 +289,7 @@ class GanttRenderer extends GanttBase {
             }
 
             if (series.not_defined) block.addClass("ganttview-block-undefined");
+            if (series.type === 'task' && !series.assignee) block.addClass("ganttview-block-unassigned");
             block.attr("title", this.getBarTitleText(series));
             block.data("record", series);
             this.setBarColor(block, series);
@@ -297,6 +310,7 @@ class GanttRenderer extends GanttBase {
                             css: { width: `${subPx.width}px`, "margin-left": `${subPx.marginLeft}px` },
                             title: subTitle
                         });
+                        if (!sub.assignee) subBlock.addClass("ganttview-block-unassigned");
                         subBlock.data("subtask", sub);
                         subBlock.data("parent-record", series);
                         jQuery(rows[rowIdx]).append(subBlock);
@@ -583,8 +597,8 @@ class GanttRenderer extends GanttBase {
 
     getMonthLabel(date) {
         const regional = $.datepicker.regional[$("html").attr('lang')];
-        const names = regional ? regional.monthNames : ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-        return `${names[date.getMonth()]} ${date.getFullYear()}`;
+        const names = regional ? regional.monthNamesShort : ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        return `${names[date.getMonth()]} ${String(date.getFullYear()).slice(-2)}`;
     }
 
     expandRight(count) {
@@ -600,11 +614,15 @@ class GanttRenderer extends GanttBase {
 
             const dayDiv = jQuery("<div>", { "class": "ganttview-hzheader-day" });
             if (zoom === 'day') dayDiv.text(date.getDate());
+            if (date.getDay() === 0) dayDiv.addClass("ganttview-week-start");
+            if (date.getDate() === 1) dayDiv.addClass("ganttview-month-start");
             daysDiv.append(dayDiv);
 
             const cellDiv = jQuery("<div>", { "class": "ganttview-grid-row-cell" });
             if (this.isWeekend(date)) cellDiv.addClass("ganttview-weekend");
             if (this.isToday(date)) cellDiv.addClass("ganttview-today");
+            if (date.getDay() === 0) cellDiv.addClass("ganttview-week-start");
+            if (date.getDate() === 1) cellDiv.addClass("ganttview-month-start");
             gridRows.each((_, el) => jQuery(el).append(cellDiv.clone()));
 
             const label = this.getMonthLabel(date);
@@ -629,17 +647,23 @@ class GanttRenderer extends GanttBase {
         const gridRows = jQuery(".ganttview-grid-row", container);
         const zoom = this._zoomLevel || 'day';
 
+        if (this._todayOffset !== null) this._todayOffset += count;
+
         for (let i = 0; i < count; i++) {
             this._startDate = this.addDays(this._startDate, -1);
             const date = this.cloneDate(this._startDate);
 
             const dayDiv = jQuery("<div>", { "class": "ganttview-hzheader-day" });
             if (zoom === 'day') dayDiv.text(date.getDate());
+            if (date.getDay() === 0) dayDiv.addClass("ganttview-week-start");
+            if (date.getDate() === 1) dayDiv.addClass("ganttview-month-start");
             daysDiv.prepend(dayDiv);
 
             const cellDiv = jQuery("<div>", { "class": "ganttview-grid-row-cell" });
             if (this.isWeekend(date)) cellDiv.addClass("ganttview-weekend");
             if (this.isToday(date)) cellDiv.addClass("ganttview-today");
+            if (date.getDay() === 0) cellDiv.addClass("ganttview-week-start");
+            if (date.getDate() === 1) cellDiv.addClass("ganttview-month-start");
             gridRows.each((_, el) => jQuery(el).prepend(cellDiv.clone()));
 
             const label = this.getMonthLabel(date);
@@ -663,6 +687,7 @@ class GanttRenderer extends GanttBase {
             const ml = parseInt(jQuery(el).css("margin-left")) || 0;
             jQuery(el).css("margin-left", `${ml + shift}px`);
         });
+        this.measureCellWidth();
     }
 
     updateGridWidths() {

@@ -18,6 +18,9 @@ class Plugin extends Base
         $this->projectAccessMap->add('ProjectGanttController', 'save', Role::PROJECT_MANAGER);
         $this->projectAccessMap->add('TaskGanttController', 'save', Role::PROJECT_MEMBER);
         $this->projectAccessMap->add('TaskGanttController', 'saveSubtask', Role::PROJECT_MEMBER);
+        $this->projectAccessMap->add('TaskGanttController', 'taskLinks', Role::PROJECT_VIEWER);
+        $this->projectAccessMap->add('TaskGanttController', 'saveLink', Role::PROJECT_MEMBER);
+        $this->projectAccessMap->add('TaskGanttController', 'removeLink', Role::PROJECT_MEMBER);
 
         $this->template->hook->attach('template:project-header:view-switcher', 'Gantt:project_header/views');
         $this->template->hook->attach('template:project:dropdown', 'Gantt:project/dropdown');

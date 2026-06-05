@@ -103,6 +103,72 @@ class TaskGanttController extends BaseController
     }
 
     /**
+     * Get internal links, link types, and project tasks for the link modal
+     */
+    public function taskLinks()
+    {
+        $project = $this->getProject();
+        $taskId = $this->request->getIntegerParam('task_id');
+
+        $links = $this->taskLinkModel->getAll($taskId);
+        $labels = $this->linkModel->getList(0, false);
+
+        $tasks = $this->db
+            ->table(TaskModel::TABLE)
+            ->columns('id', 'title')
+            ->eq('project_id', $project['id'])
+            ->eq('is_active', 1)
+            ->neq('id', $taskId)
+            ->asc('title')
+            ->findAll();
+
+        $this->response->json(array(
+            'links' => $links,
+            'labels' => $labels,
+            'tasks' => $tasks,
+        ));
+    }
+
+    /**
+     * Create a new internal link via AJAX
+     */
+    public function saveLink()
+    {
+        $this->getProject();
+        $data = $this->request->getJson();
+
+        $taskId = (int) $data['task_id'];
+        $oppositeTaskId = (int) $data['opposite_task_id'];
+        $linkId = (int) $data['link_id'];
+
+        $result = $this->taskLinkModel->create($taskId, $oppositeTaskId, $linkId);
+
+        if ($result !== false) {
+            $this->response->json(array('message' => 'OK'), 201);
+        } else {
+            $this->response->json(array('message' => 'Unable to create link. It may already exist.'), 400);
+        }
+    }
+
+    /**
+     * Remove an internal link via AJAX
+     */
+    public function removeLink()
+    {
+        $this->getProject();
+        $data = $this->request->getJson();
+
+        $linkId = (int) $data['link_id'];
+        $result = $this->taskLinkModel->remove($linkId);
+
+        if ($result) {
+            $this->response->json(array('message' => 'OK'));
+        } else {
+            $this->response->json(array('message' => 'Unable to remove link.'), 400);
+        }
+    }
+
+    /**
      * Save subtask due date
      */
     public function saveSubtask()
