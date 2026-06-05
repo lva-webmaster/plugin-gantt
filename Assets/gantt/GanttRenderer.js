@@ -196,6 +196,7 @@ class GanttRenderer extends GanttBase {
                 if (size < 3) block.addClass("ganttview-block-narrow");
             }
 
+            if (series.not_defined) block.addClass("ganttview-block-undefined");
             block.attr("title", this.getBarTitleText(series));
             block.data("record", series);
             this.setBarColor(block, series);
@@ -427,6 +428,7 @@ class GanttRenderer extends GanttBase {
         const px = this.calcBlockPixels(pos.dayIndex, pos.cellCount);
 
         record.not_defined = false;
+        block.removeClass("ganttview-block-undefined");
         this.setBarColor(block, record);
 
         record.start = this.addDays(this.cloneDate(startDate), pos.dayIndex);
