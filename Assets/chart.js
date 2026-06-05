@@ -166,6 +166,8 @@ Gantt.prototype.show = function() {
 
     this.measureCellWidth();
     this.snapAllBlocks();
+    this.snapTodayMarker();
+    this.scrollToToday();
 
     jQuery("div.ganttview-grid-row div.ganttview-grid-row-cell:last-child", container).addClass("last");
     jQuery("div.ganttview-hzheader-days div.ganttview-hzheader-day:last-child", container).addClass("last");
@@ -184,6 +186,12 @@ Gantt.prototype.show = function() {
     this.highlightDependencyViolations();
     this.renderDependencyArrows();
 
+    jQuery(this.options.container).on('click', '.ganttview-block-edit', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        KB.modal.open(this.getAttribute('href'), 'large', false);
+    });
+
     var self = this;
     var resnapTimer = null;
     window.addEventListener('resize', function() {
@@ -191,6 +199,7 @@ Gantt.prototype.show = function() {
         resnapTimer = setTimeout(function() {
             self.measureCellWidth();
             self.snapAllBlocks();
+            self.snapTodayMarker();
             self.renderDependencyArrows();
         }, 150);
     });
@@ -442,14 +451,16 @@ Gantt.prototype.renderSlider = function(startDate, endDate) {
 Gantt.prototype.addTodayMarker = function(slider, startDate, endDate) {
     var today = new Date();
     today.setHours(0, 0, 0, 0);
+    this._todayOffset = null;
 
     if (this.compareDate(today, startDate) < 0 || this.compareDate(today, endDate) > 0) {
         return;
     }
 
     var offset = this.daysBetween(startDate, today);
+    this._todayOffset = offset;
     var left = (offset * this.options.cellWidth) + Math.floor(this.options.cellWidth / 2);
-    var height = (this.data.length * this.options.cellHeight) + 41;
+    var height = (this.data.length * 32) + 41;
 
     var marker = jQuery("<div>", {
         "class": "ganttview-today-marker",
@@ -461,6 +472,23 @@ Gantt.prototype.addTodayMarker = function(slider, startDate, endDate) {
     });
 
     slider.append(marker);
+};
+
+Gantt.prototype.snapTodayMarker = function() {
+    if (this._todayOffset === null) return;
+    var marker = jQuery(".ganttview-today-marker", this.options.container);
+    if (!marker.length) return;
+    var px = this.calcBlockPixels(this._todayOffset, 1);
+    var cw = this._renderedCellWidth || this.options.cellWidth;
+    marker.css("left", (px.marginLeft + Math.floor(cw / 2)) + "px");
+};
+
+Gantt.prototype.scrollToToday = function() {
+    if (this._todayOffset === null) return;
+    var container = jQuery("div.ganttview-slide-container", this.options.container);
+    var px = this.calcBlockPixels(this._todayOffset, 1);
+    var viewWidth = container.width();
+    container.scrollLeft(Math.max(0, px.marginLeft - viewWidth / 3));
 };
 
 // Render top header (days)
@@ -561,9 +589,14 @@ Gantt.prototype.addBlocks = function(slider, start) {
 
         if (series.type === 'task') {
             this.addTaskBarText(text, series, size);
+            var editUrl = series.link.replace('action=show', 'action=edit').replace('TaskViewController', 'TaskModificationController');
+            var editBtn = jQuery("<a>", {
+                "class": "ganttview-block-edit js-modal-large",
+                "href": editUrl
+            }).append(jQuery("<i>", { "class": "fa fa-edit" }));
+            block.append(editBtn);
         }
 
-        block.attr("title", this.getBarTitleText(series));
         block.data("record", series);
         this.setBarColor(block, series);
 
@@ -573,15 +606,10 @@ Gantt.prototype.addBlocks = function(slider, start) {
 };
 
 Gantt.prototype.addTaskBarText = function(container, record, size) {
-    var dateStr = this.formatShortDate(record.start) + ' → ' + this.formatShortDate(record.end);
-    if (size >= 8) {
-        container.html($('<span>').text(record.progress + ' - #' + record.id + ' ' + record.title + '  (' + dateStr + ')'));
-    }
-    else if (size >= 4) {
-        container.html($('<span>').text(record.progress + ' - #' + record.id + ' ' + record.title));
-    }
-    else if (size >= 2) {
-        container.html($('<span>').text(record.progress));
+    if (size >= 6) {
+        container.html($('<span>').text('#' + record.id + ' ' + record.title));
+    } else if (size >= 3) {
+        container.html($('<span>').text('#' + record.id));
     }
 };
 
@@ -725,6 +753,7 @@ Gantt.prototype.listenForBlockResize = function() {
     jQuery("div.ganttview-block", this.options.container).resizable({
         grid: [rcw, rcw],
         handles: "e,w",
+        cancel: ".ganttview-block-edit",
         delay: 300,
         minWidth: rcw - 1,
         start: function() {
@@ -804,6 +833,7 @@ Gantt.prototype.listenForBlockMove = function() {
     jQuery("div.ganttview-block", this.options.container).draggable({
         axis: "x",
         delay: 300,
+        cancel: ".ganttview-block-edit",
         grid: [rcw, rcw],
         start: function(event) {
             self._activeBlock = jQuery(this);
