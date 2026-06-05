@@ -30,12 +30,54 @@ class TaskGanttFormatter extends BaseFormatter implements FormatterInterface
     public function format()
     {
         $bars = array();
+        $taskIds = array();
 
         foreach ($this->query->findAll() as $task) {
             $bars[] = $this->formatTask($task);
+            $taskIds[] = $task['id'];
+        }
+
+        $dependencyLinkId = (int) $this->configModel->get('gantt_dependency_link_id', 2);
+        $dependencies = $this->getDependencies($taskIds, $dependencyLinkId);
+
+        foreach ($bars as &$bar) {
+            $bar['dependencies'] = isset($dependencies[$bar['id']]) ? $dependencies[$bar['id']] : array();
         }
 
         return $bars;
+    }
+
+    /**
+     * Get dependency links for a set of tasks
+     *
+     * Returns tasks that each task blocks (forward dependencies).
+     * If task A "blocks" task B, then A's dependencies array contains B's id.
+     *
+     * @access private
+     * @param  array  $taskIds
+     * @param  int    $blockLinkId  The link ID for "blocks" (default 2)
+     * @return array  Keyed by task_id => array of blocked task IDs
+     */
+    private function getDependencies(array $taskIds, $blockLinkId)
+    {
+        if (empty($taskIds) || empty($blockLinkId)) {
+            return array();
+        }
+
+        $rows = $this->db
+            ->table('task_has_links')
+            ->columns('task_id', 'opposite_task_id')
+            ->eq('link_id', $blockLinkId)
+            ->in('task_id', $taskIds)
+            ->in('opposite_task_id', $taskIds)
+            ->findAll();
+
+        $deps = array();
+        foreach ($rows as $row) {
+            $deps[(int) $row['task_id']][] = (int) $row['opposite_task_id'];
+        }
+
+        return $deps;
     }
 
     /**

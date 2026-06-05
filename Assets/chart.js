@@ -18,11 +18,9 @@ var Gantt = function() {
 
 // Convert a block's pixel position and width to a day index and cell count
 Gantt.prototype.readBlockPosition = function(block) {
-    var container = jQuery("div.ganttview-slide-container", this.options.container);
-    var borderLeft = parseFloat(container.css("border-left-width")) || 0;
-    var scroll = container.scrollLeft();
-    var pixelOffset = block.offset().left - container.offset().left - borderLeft + scroll;
-    var width = block.outerWidth();
+    var el = block[0];
+    var pixelOffset = (parseInt(el.style.marginLeft) || 0) + (parseInt(el.style.left) || 0);
+    var width = parseInt(el.style.width) || block.outerWidth();
     var dayIndex = Math.round(pixelOffset / this.options.cellWidth);
     var cellCount = Math.round((width + 1) / this.options.cellWidth);
     if (cellCount < 1) cellCount = 1;
@@ -97,6 +95,197 @@ Gantt.prototype.show = function() {
         this.options.allowResizes = false;
         this.options.allowMoves = false;
     }
+
+    this.buildDependencyIndex();
+    this.highlightDependencyViolations();
+    this.renderDependencyArrows();
+};
+
+Gantt.prototype.buildDependencyIndex = function() {
+    this._taskIndex = {};
+    this._blockedBy = {};
+    for (var i = 0; i < this.data.length; i++) {
+        var task = this.data[i];
+        this._taskIndex[task.id] = task;
+        if (task.dependencies) {
+            for (var j = 0; j < task.dependencies.length; j++) {
+                var blockedId = task.dependencies[j];
+                if (!this._blockedBy[blockedId]) this._blockedBy[blockedId] = [];
+                this._blockedBy[blockedId].push(task.id);
+            }
+        }
+    }
+};
+
+Gantt.prototype.getBlockElement = function(taskId) {
+    var result = null;
+    jQuery("div.ganttview-block", this.options.container).each(function() {
+        if ($(this).data("record") && $(this).data("record").id === taskId) {
+            result = $(this);
+            return false;
+        }
+    });
+    return result;
+};
+
+Gantt.prototype.renderDependencyArrows = function() {
+    var container = jQuery("div.ganttview-slide-container", this.options.container);
+    jQuery(".ganttview-dep-svg", container).remove();
+
+    var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("class", "ganttview-dep-svg");
+    svg.style.cssText = "position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible;z-index:2";
+
+    var defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
+    var marker = document.createElementNS("http://www.w3.org/2000/svg", "marker");
+    marker.setAttribute("id", "gantt-arrow");
+    marker.setAttribute("markerWidth", "5");
+    marker.setAttribute("markerHeight", "4");
+    marker.setAttribute("refX", "5");
+    marker.setAttribute("refY", "2");
+    marker.setAttribute("orient", "auto");
+    var polygon = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+    polygon.setAttribute("points", "0 0, 5 2, 0 4");
+    polygon.setAttribute("fill", "#000");
+    marker.appendChild(polygon);
+    defs.appendChild(marker);
+    svg.appendChild(defs);
+
+    var self = this;
+    var hasArrows = false;
+    var cRect = container[0].getBoundingClientRect();
+    var scroll = container.scrollLeft();
+
+    for (var i = 0; i < this.data.length; i++) {
+        var task = this.data[i];
+        if (!task.dependencies || !task.dependencies.length) continue;
+
+        var fromBlock = this.getBlockElement(task.id);
+        if (!fromBlock) continue;
+
+        for (var j = 0; j < task.dependencies.length; j++) {
+            var toBlock = this.getBlockElement(task.dependencies[j]);
+            if (!toBlock) continue;
+
+            var fromEl = fromBlock[0];
+            var fromML = (parseInt(fromEl.style.marginLeft) || 0) + (parseInt(fromEl.style.left) || 0);
+            var fromW = parseInt(fromEl.style.width) || fromBlock.outerWidth();
+            var fromRect = fromEl.getBoundingClientRect();
+            var fromMidY = fromRect.top + fromRect.height / 2 - cRect.top + container.scrollTop();
+
+            var toEl = toBlock[0];
+            var toML = (parseInt(toEl.style.marginLeft) || 0) + (parseInt(toEl.style.left) || 0);
+            var toRect = toEl.getBoundingClientRect();
+            var toMidY = toRect.top + toRect.height / 2 - cRect.top + container.scrollTop();
+
+            var x1 = fromML + fromW;
+            var y1 = fromMidY;
+            var x2 = toML;
+            var y2 = toMidY;
+
+            var cp = Math.max(Math.abs(x2 - x1) * 0.4, 30);
+            var d = "M" + x1 + "," + y1
+              + " C" + (x1 + cp) + "," + y1
+              + " " + (x2 - cp) + "," + y2
+              + " " + x2 + "," + y2;
+
+            var path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+            path.setAttribute("d", d);
+            path.setAttribute("fill", "none");
+            path.setAttribute("stroke", "#000");
+            path.setAttribute("stroke-width", "2");
+            path.setAttribute("marker-end", "url(#gantt-arrow)");
+            svg.appendChild(path);
+            hasArrows = true;
+        }
+    }
+
+    if (hasArrows) {
+        container.css("position", "relative");
+        container.append(svg);
+    }
+};
+
+Gantt.prototype.highlightDependencyViolations = function() {
+    jQuery("div.ganttview-block", this.options.container).removeClass("ganttview-dep-violation");
+    for (var taskId in this._blockedBy) {
+        var id = parseInt(taskId);
+        var blockerEnd = this.getBlockerEndDate(id);
+        if (!blockerEnd) continue;
+        var task = this._taskIndex[id];
+        if (!task) continue;
+        var minStart = this.addDays(this.cloneDate(blockerEnd), 1);
+        if (this.compareDate(task.start, minStart) === -1) {
+            var block = this.getBlockElement(id);
+            if (block) block.addClass("ganttview-dep-violation");
+        }
+    }
+};
+
+Gantt.prototype.enforceDependencyConstraint = function(block) {
+    var record = block.data("record");
+    if (!record) return;
+
+    if (record.dependencies) {
+        for (var i = 0; i < record.dependencies.length; i++) {
+            this.enforceBlockedConstraint(record.dependencies[i]);
+        }
+    }
+
+    this.enforceBlockedConstraint(record.id);
+};
+
+Gantt.prototype.enforceBlockedConstraint = function(taskId) {
+    var blockerEnd = this.getBlockerEndDate(taskId);
+    if (!blockerEnd) return;
+
+    var block = this.getBlockElement(taskId);
+    if (!block) return;
+    var record = block.data("record");
+    if (!record) return;
+
+    var minStart = this.addDays(this.cloneDate(blockerEnd), 1);
+
+    if (this.compareDate(record.start, minStart) === -1) {
+        var duration = this.daysBetween(record.start, record.end);
+        record.start = minStart;
+        record.end = this.addDays(this.cloneDate(record.start), duration);
+
+        var dayIndex = this.daysBetween(this._startDate, record.start);
+        var cellCount = duration + 1;
+        var px = this.calcBlockPixels(dayIndex, cellCount);
+
+        block[0].style.marginLeft = px.marginLeft + "px";
+        block[0].style.width = px.width + "px";
+        block.attr("title", this.getBarTitleText(record));
+        block.data("record", record);
+        this.saveRecord(record);
+    }
+};
+
+Gantt.prototype.getBlockerEndDate = function(taskId) {
+    var blockers = this._blockedBy[taskId];
+    if (!blockers || !blockers.length) return null;
+    var latest = null;
+    for (var i = 0; i < blockers.length; i++) {
+        var blocker = this._taskIndex[blockers[i]];
+        if (blocker && blocker.end) {
+            if (!latest || this.compareDate(blocker.end, latest) === 1) {
+                latest = blocker.end;
+            }
+        }
+    }
+    return latest;
+};
+
+Gantt.prototype.getMinDragPosition = function(block) {
+    var record = block.data("record");
+    if (!record) return null;
+    var blockerEnd = this.getBlockerEndDate(record.id);
+    if (!blockerEnd) return null;
+    var minStart = this.addDays(this.cloneDate(blockerEnd), 1);
+    var dayIndex = this.daysBetween(this._startDate, minStart);
+    return dayIndex * this.options.cellWidth;
 };
 
 Gantt.prototype.infoTooltip = function(content) {
@@ -403,7 +592,7 @@ Gantt.prototype.getTooltipFooter = function(record, tooltip) {
 
 // Set bar color
 Gantt.prototype.setBarColor = function(block, record) {
-    block.css("background-color", record.color.background);
+    block.css("background-color", record.color.border);
     block.css("border-color", record.color.border);
 
     if (record.not_defined) {
@@ -443,11 +632,17 @@ Gantt.prototype.listenForBlockResize = function() {
         delay: 300,
         minWidth: this.options.cellWidth - 1,
         start: function() {
+            self._resizeMinLeft = self.getMinDragPosition(jQuery(this));
             self.showDateIndicator(jQuery(this), self._startDate);
         },
         resize: function(event, ui) {
             var marginLeft = parseInt(jQuery(this).css("margin-left")) || 0;
             var minLeft = -marginLeft;
+
+            if (self._resizeMinLeft !== null) {
+                var depMinLeft = self._resizeMinLeft - marginLeft;
+                if (depMinLeft > minLeft) minLeft = depMinLeft;
+            }
             if (ui.position.left < minLeft) {
                 ui.size.width += (ui.position.left - minLeft);
                 ui.position.left = minLeft;
@@ -466,6 +661,8 @@ Gantt.prototype.listenForBlockResize = function() {
             if (px.marginLeft + px.width > gridWidth - 2 * self.options.cellWidth) {
                 self.expandRight(14);
             }
+
+            requestAnimationFrame(function() { self.renderDependencyArrows(); });
         },
         stop: function() {
             self.hideDateIndicator();
@@ -482,7 +679,10 @@ Gantt.prototype.listenForBlockResize = function() {
             }
 
             self.updateDataAndPosition(block, self._startDate);
+            self.enforceDependencyConstraint(block);
             self.saveRecord(block.data("record"));
+            self.highlightDependencyViolations();
+            self.renderDependencyArrows();
         }
     });
 };
@@ -498,12 +698,21 @@ Gantt.prototype.listenForBlockMove = function() {
         start: function(event) {
             self._activeBlock = jQuery(this);
             self._lastMouseX = event.clientX;
+            self._dragMinLeft = self.getMinDragPosition(jQuery(this));
             self.showDateIndicator(jQuery(this), self._startDate);
             self.startAutoScroll();
         },
-        drag: function(event) {
+        drag: function(event, ui) {
+            if (self._dragMinLeft !== null) {
+                var marginLeft = parseInt(jQuery(this).css("margin-left")) || 0;
+                var effectiveLeft = marginLeft + ui.position.left;
+                if (effectiveLeft < self._dragMinLeft) {
+                    ui.position.left = self._dragMinLeft - marginLeft;
+                }
+            }
             self._lastMouseX = event.clientX;
             self.updateDateIndicator(jQuery(this), self._startDate);
+            self.renderDependencyArrows();
         },
         stop: function() {
             self.stopAutoScroll();
@@ -511,7 +720,10 @@ Gantt.prototype.listenForBlockMove = function() {
             self._activeBlock = null;
             var block = jQuery(this);
             self.updateDataAndPosition(block, self._startDate);
+            self.enforceDependencyConstraint(block);
             self.saveRecord(block.data("record"));
+            self.highlightDependencyViolations();
+            self.renderDependencyArrows();
         }
     });
 };
@@ -729,12 +941,12 @@ Gantt.prototype.updateDataAndPosition = function(block, startDate) {
     block.attr("title", this.getBarTitleText(record));
     block.data("record", record);
 
-    block
-        .css("top", "")
-        .css("left", "")
-        .css("position", "relative")
-        .css("margin-left", px.marginLeft + "px")
-        .css("width", px.width + "px");
+    var el = block[0];
+    el.style.top = "";
+    el.style.left = "";
+    el.style.position = "relative";
+    el.style.marginLeft = px.marginLeft + "px";
+    el.style.width = px.width + "px";
 };
 
 // Creates a 3 dimensional array [year][month][day] of every day

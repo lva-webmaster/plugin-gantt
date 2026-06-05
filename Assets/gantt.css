@@ -200,3 +200,7 @@ div.ganttview-progress-bar {
 .ganttview-save-indicator.error {
     background: #e74c3c;
 }
+
+div.ganttview-block.ganttview-dep-violation {
+    box-shadow: inset 0 0 0 2px #e74c3c !important;
+}

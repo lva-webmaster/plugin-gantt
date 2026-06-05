@@ -11,14 +11,30 @@ class ConfigController extends \Kanboard\Controller\ConfigController
 {
     public function show()
     {
+        $links = $this->linkModel->getAll();
+        $linkLabels = array('' => t('None (disabled)'));
+
+        foreach ($links as $link) {
+            if (!empty($link['opposite_id'])) {
+                $linkLabels[$link['id']] = t($link['label']);
+            }
+        }
+
+        $values = array(
+            'gantt_dependency_link_id' => $this->configModel->get('gantt_dependency_link_id', '2'),
+            'gantt_task_sort' => $this->configModel->get('gantt_task_sort', 'board'),
+        );
+
         $this->response->html($this->helper->layout->config('Gantt:config/gantt', array(
             'title' => t('Settings').' &gt; '.t('Gantt settings'),
+            'link_labels' => $linkLabels,
+            'values' => $values,
         )));
     }
 
     public function save()
     {
-        $values =  $this->request->getValues();
+        $values = $this->request->getValues();
         $values += array('calendar_user_subtasks_time_tracking' => 0);
 
         if ($this->configModel->save($values)) {
