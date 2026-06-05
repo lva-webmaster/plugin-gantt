@@ -25,6 +25,23 @@
             <li>
                 <?= $this->modal->large('plus', t('Add task'), 'TaskCreationController', 'show', array('project_id' => $project['id'])) ?>
             </li>
+            <li class="gantt-toolbar-separator"></li>
+            <li>
+                <select id="gantt-group-select" title="<?= t('Group by') ?>">
+                    <option value="none"><?= t('No grouping') ?></option>
+                    <option value="swimlane"><?= t('Swimlane') ?></option>
+                    <option value="assignee"><?= t('Assignee') ?></option>
+                    <option value="category"><?= t('Category') ?></option>
+                    <option value="column"><?= t('Column') ?></option>
+                    <option value="priority"><?= t('Priority') ?></option>
+                </select>
+            </li>
+            <li class="gantt-toolbar-separator"></li>
+            <li class="gantt-zoom-buttons">
+                <button class="gantt-zoom-btn" data-zoom="month" title="<?= t('Month') ?>"><i class="fa fa-compress"></i></button>
+                <button class="gantt-zoom-btn" data-zoom="week" title="<?= t('Week') ?>"><i class="fa fa-minus"></i></button>
+                <button class="gantt-zoom-btn active" data-zoom="day" title="<?= t('Day') ?>"><i class="fa fa-plus"></i></button>
+            </li>
         </ul>
     </div>
 
@@ -45,6 +62,9 @@
             data-label-category="<?= t('Category:') ?>"
             data-label-priority="<?= t('Priority:') ?>"
             data-label-not-defined="<?= t('There is no start date or due date for this task.') ?>"
+            data-label-critical-path="<?= t('Critical path') ?>"
+            data-label-float="<?= t('Float:') ?>"
+            data-label-milestone="<?= t('Milestone') ?>"
         ></div>
         <p class="alert alert-info"><?= t('Moving or resizing a task will change the start and due date of the task.') ?></p>
     <?php else: ?>

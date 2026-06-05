@@ -15,6 +15,7 @@ KB.on('dom.ready', () => {
     if (KB.exists('#gantt-chart')) {
         const chart = new Gantt();
         chart.show();
+        jQuery('#gantt-chart').data('gantt', chart);
 
         KB.on('modal.close', () => {
             if (KB.exists('#gantt-chart')) {

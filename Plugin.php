@@ -27,6 +27,7 @@ class Plugin extends Base
         $this->hook->on('template:layout:js', array('template' => 'plugins/Gantt/Assets/gantt/GanttBase.js'));
         $this->hook->on('template:layout:js', array('template' => 'plugins/Gantt/Assets/gantt/GanttRenderer.js'));
         $this->hook->on('template:layout:js', array('template' => 'plugins/Gantt/Assets/gantt/GanttDependencies.js'));
+        $this->hook->on('template:layout:js', array('template' => 'plugins/Gantt/Assets/gantt/GanttCriticalPath.js'));
         $this->hook->on('template:layout:js', array('template' => 'plugins/Gantt/Assets/gantt/GanttInteraction.js'));
         $this->hook->on('template:layout:js', array('template' => 'plugins/Gantt/Assets/gantt/Gantt.js'));
         $this->hook->on('template:layout:js', array('template' => 'plugins/Gantt/Assets/gantt.js'));

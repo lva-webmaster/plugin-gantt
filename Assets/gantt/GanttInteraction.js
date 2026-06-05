@@ -1,4 +1,4 @@
-class GanttInteraction extends GanttDependencies {
+class GanttInteraction extends GanttCriticalPath {
 
     listenForBlockResize() {
         const rcw = Math.round(this._renderedCellWidth || this.options.cellWidth);

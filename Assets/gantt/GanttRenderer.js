@@ -6,6 +6,20 @@ class GanttRenderer extends GanttBase {
         const seriesDiv = jQuery("<div>", { "class": "ganttview-vtheader-series" });
 
         for (const item of this.data) {
+            if (item.type === 'group') {
+                const groupRow = jQuery("<div>", {
+                    "class": "ganttview-vtheader-series-name ganttview-group-header",
+                    "data-group-name": item.name
+                });
+                groupRow.append(
+                    jQuery("<a>", { "class": "ganttview-group-toggle", href: "#" })
+                        .append(jQuery("<i>", { "class": "fa fa-caret-down" }))
+                );
+                groupRow.append(jQuery("<strong>").text(`${item.name} (${item.count})`));
+                seriesDiv.append(groupRow);
+                continue;
+            }
+
             const content = jQuery("<span>")
                 .append(this.infoTooltip(this.getVerticalHeaderTooltip(item)))
                 .append("&nbsp;");
@@ -22,6 +36,11 @@ class GanttRenderer extends GanttBase {
                     href: editUrl,
                     title: "Edit"
                 }).append(jQuery("<i>", { "class": "fa fa-edit" })));
+
+                if (item.is_milestone) {
+                    content.append(jQuery("<i>", { "class": "fa fa-diamond ganttview-milestone-icon", title: "Milestone" }));
+                }
+
                 content.append(jQuery('<strong>').text(`#${item.id} `));
                 content.append(jQuery("<a>", { href: item.link, title: item.title }).text(item.title));
                 if (item.assignee) {
@@ -85,6 +104,7 @@ class GanttRenderer extends GanttBase {
         const monthsDiv = jQuery("<div>", { "class": "ganttview-hzheader-months" });
         const daysDiv = jQuery("<div>", { "class": "ganttview-hzheader-days" });
         let totalW = 0;
+        const zoom = this._zoomLevel || 'day';
 
         for (const y in dates) {
             for (const m in dates[y]) {
@@ -97,7 +117,11 @@ class GanttRenderer extends GanttBase {
                 }).append(`${$.datepicker.regional[$("html").attr('lang')].monthNames[m]} ${y}`));
 
                 for (const date of dates[y][m]) {
-                    daysDiv.append(jQuery("<div>", { "class": "ganttview-hzheader-day" }).append(date.getDate()));
+                    const dayDiv = jQuery("<div>", { "class": "ganttview-hzheader-day" });
+                    if (zoom === 'day') {
+                        dayDiv.append(date.getDate());
+                    }
+                    daysDiv.append(dayDiv);
                 }
             }
         }
@@ -131,6 +155,10 @@ class GanttRenderer extends GanttBase {
         gridDiv.css("width", `${w}px`);
 
         for (const item of this.data) {
+            if (item.type === 'group') {
+                gridDiv.append(rowDiv.clone().addClass("ganttview-group-grid-row").attr("data-group-name", item.name));
+                continue;
+            }
             gridDiv.append(rowDiv.clone());
             if (item.subtasks && item.subtasks.length) {
                 for (const sub of item.subtasks) {
@@ -149,6 +177,13 @@ class GanttRenderer extends GanttBase {
         const blocksDiv = jQuery("<div>", { "class": "ganttview-blocks" });
 
         for (const item of this.data) {
+            if (item.type === 'group') {
+                blocksDiv.append(jQuery("<div>", {
+                    "class": "ganttview-block-container ganttview-group-block-row",
+                    "data-group-name": item.name
+                }));
+                continue;
+            }
             blocksDiv.append(jQuery("<div>", { "class": "ganttview-block-container" }));
             if (item.subtasks && item.subtasks.length) {
                 for (const sub of item.subtasks) {
@@ -169,9 +204,45 @@ class GanttRenderer extends GanttBase {
         let rowIdx = 0;
 
         for (const series of this.data) {
+            if (series.type === 'group') {
+                rowIdx++;
+                continue;
+            }
+
             const size = this.daysBetween(series.start, series.end) + 1;
             const offset = this.daysBetween(start, series.start);
             const px = this.calcBlockPixels(offset, size);
+
+            if (series.is_milestone) {
+                const mText = jQuery("<div>", {
+                    "class": "ganttview-block-text",
+                    css: { width: `${Math.max(0, px.width - 10)}px` }
+                });
+                if (series.type === 'task') {
+                    this.addTaskBarText(mText, series, size);
+                }
+
+                const block = jQuery("<div>", {
+                    "class": `ganttview-block ganttview-milestone${this.options.allowMoves ? " ganttview-block-movable" : ""}`,
+                    css: { width: `${px.width}px`, "margin-left": `${px.marginLeft}px` }
+                }).append(mText);
+
+                if (series.type === 'task') {
+                    const editUrl = series.link.replace('action=show', 'action=edit').replace('TaskViewController', 'TaskModificationController');
+                    block.append(jQuery("<a>", {
+                        "class": "ganttview-block-edit js-modal-large",
+                        href: editUrl
+                    }).append(jQuery("<i>", { "class": "fa fa-edit" })));
+                    if (size < 3) block.addClass("ganttview-block-narrow");
+                }
+
+                block.attr("title", this.getBarTitleText(series));
+                block.data("record", series);
+                jQuery(rows[rowIdx]).append(block);
+                rowIdx++;
+                continue;
+            }
+
             const text = jQuery("<div>", {
                 "class": "ganttview-block-text",
                 css: { width: `${Math.max(0, px.width - 10)}px` }
@@ -289,18 +360,20 @@ class GanttRenderer extends GanttBase {
 
     getBarTitleText(record) {
         const parts = [];
+        const container = $(this.options.container);
 
         if (record.type === 'task') {
             parts.push(`#${record.id} ${record.title}`);
             parts.push(`${record.column_title} (${record.progress})`);
             if (record.assignee) parts.push(record.assignee);
             if (record.category) parts.push(record.category);
+            if (record.is_milestone) parts.push(container.data("label-milestone") || 'Milestone');
         } else {
             parts.push(record.title);
         }
 
         if (record.not_defined) {
-            parts.push($(this.options.container).data("label-not-defined"));
+            parts.push(container.data("label-not-defined"));
         } else {
             const days = this.daysBetween(record.start, record.end) + 1;
             if (record.start_formatted && record.end_formatted) {
@@ -309,6 +382,18 @@ class GanttRenderer extends GanttBase {
                 const startStr = `${this.dayName(record.start)} ${$.datepicker.formatDate(this.dateFormat, record.start)}`;
                 const endStr = `${this.dayName(record.end)} ${$.datepicker.formatDate(this.dateFormat, record.end)}`;
                 parts.push(`${startStr} → ${endStr} (${days}d)`);
+            }
+        }
+
+        const cpInfo = this.getCriticalPathInfo ? this.getCriticalPathInfo(record.id) : null;
+        if (cpInfo) {
+            const floatLabel = container.data("label-float") || 'Float:';
+            if (cpInfo.isCritical) {
+                parts.push(`⚠ ${container.data("label-critical-path") || 'Critical path'}`);
+            } else if (cpInfo.isOnChain) {
+                parts.push(`⚠ Critical chain (${floatLabel} ${cpInfo.float}d)`);
+            } else {
+                parts.push(`${floatLabel} ${cpInfo.float}d`);
             }
         }
 
@@ -394,14 +479,13 @@ class GanttRenderer extends GanttBase {
 
     setBarColor(block, record) {
         block.css("background-color", record.color.border);
-        block.css("border-color", record.color.border);
 
         if (record.not_defined) {
             if (record.date_started_not_defined) {
-                block.css("border-left", "2px solid #000");
+                block.css("border-left", "2px dashed rgba(0,0,0,0.4)");
             }
             if (record.date_due_not_defined) {
-                block.css("border-right", "2px solid #000");
+                block.css("border-right", "2px dashed rgba(0,0,0,0.4)");
             }
         }
 
@@ -471,12 +555,15 @@ class GanttRenderer extends GanttBase {
         const monthsDiv = jQuery(".ganttview-hzheader-months", container);
         const daysDiv = jQuery(".ganttview-hzheader-days", container);
         const gridRows = jQuery(".ganttview-grid-row", container);
+        const zoom = this._zoomLevel || 'day';
 
         for (let i = 0; i < count; i++) {
             this._endDate = this.addDays(this.cloneDate(this._endDate), 1);
             const date = this.cloneDate(this._endDate);
 
-            daysDiv.append(jQuery("<div>", { "class": "ganttview-hzheader-day" }).text(date.getDate()));
+            const dayDiv = jQuery("<div>", { "class": "ganttview-hzheader-day" });
+            if (zoom === 'day') dayDiv.text(date.getDate());
+            daysDiv.append(dayDiv);
 
             const cellDiv = jQuery("<div>", { "class": "ganttview-grid-row-cell" });
             if (this.isWeekend(date)) cellDiv.addClass("ganttview-weekend");
@@ -503,12 +590,15 @@ class GanttRenderer extends GanttBase {
         const monthsDiv = jQuery(".ganttview-hzheader-months", container);
         const daysDiv = jQuery(".ganttview-hzheader-days", container);
         const gridRows = jQuery(".ganttview-grid-row", container);
+        const zoom = this._zoomLevel || 'day';
 
         for (let i = 0; i < count; i++) {
             this._startDate = this.addDays(this._startDate, -1);
             const date = this.cloneDate(this._startDate);
 
-            daysDiv.prepend(jQuery("<div>", { "class": "ganttview-hzheader-day" }).text(date.getDate()));
+            const dayDiv = jQuery("<div>", { "class": "ganttview-hzheader-day" });
+            if (zoom === 'day') dayDiv.text(date.getDate());
+            daysDiv.prepend(dayDiv);
 
             const cellDiv = jQuery("<div>", { "class": "ganttview-grid-row-cell" });
             if (this.isWeekend(date)) cellDiv.addClass("ganttview-weekend");

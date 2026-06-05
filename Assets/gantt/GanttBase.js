@@ -1,9 +1,20 @@
 // Based on jQuery.ganttView v.0.8.8 Copyright (c) 2010 JC Grubbs - jc.grubbs@devmynd.com - MIT License
 
 class GanttBase {
+
+    static ZOOM_LEVELS = {
+        day:   { cellWidth: 21 },
+        week:  { cellWidth: 6  },
+        month: { cellWidth: 2  }
+    };
+
     constructor() {
         this.data = [];
         this.dateFormat = $("body").data("js-date-format") || 'yy-mm-dd';
+        this._zoomLevel = localStorage.getItem('gantt-zoom') || 'day';
+        this._groupBy = localStorage.getItem('gantt-group') || 'none';
+
+        const zoom = GanttBase.ZOOM_LEVELS[this._zoomLevel] || GanttBase.ZOOM_LEVELS.day;
 
         this.options = {
             container: "#gantt-chart",
@@ -11,7 +22,7 @@ class GanttBase {
             showToday: true,
             allowMoves: true,
             allowResizes: true,
-            cellWidth: 21,
+            cellWidth: zoom.cellWidth,
             cellHeight: 31,
             slideWidth: 1000,
             vHeaderWidth: 200
@@ -210,6 +221,7 @@ class GanttBase {
         let maxEnd = null;
 
         for (const item of this.data) {
+            if (item.type === 'group') continue;
             const start = new Date();
             start.setTime(Date.parse(item.start));
             const end = new Date();

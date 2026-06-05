@@ -40,12 +40,18 @@ class TaskGanttFormatter extends BaseFormatter implements FormatterInterface
         $dependencyLinkId = (int) $this->configModel->get('gantt_dependency_link_id', 2);
         $dependencies = $this->getDependencies($taskIds, $dependencyLinkId);
 
+        $milestoneLinkId = (int) $this->configModel->get('gantt_milestone_link_id', 9);
+        $milestoneIds = $this->getMilestoneTaskIds($taskIds, $milestoneLinkId);
+        $milestoneLinks = $this->getMilestoneLinks($taskIds, $milestoneLinkId);
+
         $hasSubtaskdate = class_exists('\Kanboard\Plugin\Subtaskdate\Plugin');
         $subtasks = $hasSubtaskdate ? $this->getSubtasks($taskIds) : array();
 
         foreach ($bars as &$bar) {
             $bar['dependencies'] = isset($dependencies[$bar['id']]) ? $dependencies[$bar['id']] : array();
             $bar['subtasks'] = isset($subtasks[$bar['id']]) ? $subtasks[$bar['id']] : array();
+            $bar['is_milestone'] = in_array($bar['id'], $milestoneIds);
+            $bar['milestone_sources'] = isset($milestoneLinks[$bar['id']]) ? $milestoneLinks[$bar['id']] : array();
         }
 
         return $bars;
@@ -135,6 +141,62 @@ class TaskGanttFormatter extends BaseFormatter implements FormatterInterface
     }
 
     /**
+     * Get milestone link relationships (which source tasks target each milestone)
+     *
+     * @access private
+     * @param  array  $taskIds
+     * @param  int    $milestoneLinkId  The "is a milestone of" link ID
+     * @return array  Keyed by milestone_task_id => array of source task IDs
+     */
+    private function getMilestoneLinks(array $taskIds, $milestoneLinkId)
+    {
+        if (empty($taskIds) || empty($milestoneLinkId)) {
+            return array();
+        }
+
+        $rows = $this->db
+            ->table('task_has_links')
+            ->columns('task_id', 'opposite_task_id')
+            ->eq('link_id', $milestoneLinkId)
+            ->in('task_id', $taskIds)
+            ->in('opposite_task_id', $taskIds)
+            ->findAll();
+
+        $links = array();
+        foreach ($rows as $row) {
+            $links[(int) $row['task_id']][] = (int) $row['opposite_task_id'];
+        }
+
+        return $links;
+    }
+
+    /**
+     * Get task IDs that are milestones via link type
+     *
+     * @access private
+     * @param  array  $taskIds
+     * @param  int    $milestoneLinkId
+     * @return array  Flat array of task IDs
+     */
+    private function getMilestoneTaskIds(array $taskIds, $milestoneLinkId)
+    {
+        if (empty($taskIds) || empty($milestoneLinkId)) {
+            return array();
+        }
+
+        $rows = $this->db
+            ->table('task_has_links')
+            ->columns('task_id')
+            ->eq('link_id', $milestoneLinkId)
+            ->in('task_id', $taskIds)
+            ->findAll();
+
+        return array_unique(array_map(function ($row) {
+            return (int) $row['task_id'];
+        }, $rows));
+    }
+
+    /**
      * Format a single task
      *
      * @access private
@@ -185,6 +247,8 @@ class TaskGanttFormatter extends BaseFormatter implements FormatterInterface
             'not_defined' => empty($task['date_due']) || empty($task['date_started']),
             'date_started_not_defined' => empty($task['date_started']),
             'date_due_not_defined' => empty($task['date_due']),
+            'swimlane_name' => isset($task['swimlane_name']) ? $task['swimlane_name'] : '',
+            'swimlane_id' => isset($task['swimlane_id']) ? (int) $task['swimlane_id'] : 0,
         );
     }
 }

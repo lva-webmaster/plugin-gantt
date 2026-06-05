@@ -15,9 +15,11 @@ class GanttDependencies extends GanttRenderer {
     }
 
     getBlockElement(taskId) {
+        const nid = parseInt(taskId);
         let result = null;
         jQuery("div.ganttview-block", this.options.container).each((_, el) => {
-            if ($(el).data("record") && $(el).data("record").id === taskId) {
+            const rec = $(el).data("record");
+            if (rec && parseInt(rec.id) === nid) {
                 result = $(el);
                 return false;
             }
@@ -34,60 +36,69 @@ class GanttDependencies extends GanttRenderer {
         svg.style.cssText = "position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible;z-index:2";
 
         const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
-        const marker = document.createElementNS("http://www.w3.org/2000/svg", "marker");
-        marker.setAttribute("id", "gantt-arrow");
-        marker.setAttribute("markerWidth", "5");
-        marker.setAttribute("markerHeight", "4");
-        marker.setAttribute("refX", "5");
-        marker.setAttribute("refY", "2");
-        marker.setAttribute("orient", "auto");
-        const polygon = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
-        polygon.setAttribute("points", "0 0, 5 2, 0 4");
-        polygon.setAttribute("fill", "#000");
-        marker.appendChild(polygon);
-        defs.appendChild(marker);
+        const makeMarker = (id, color) => {
+            const m = document.createElementNS("http://www.w3.org/2000/svg", "marker");
+            m.setAttribute("id", id);
+            m.setAttribute("markerWidth", "8");
+            m.setAttribute("markerHeight", "6");
+            m.setAttribute("refX", "8");
+            m.setAttribute("refY", "3");
+            m.setAttribute("orient", "auto");
+            m.setAttribute("markerUnits", "userSpaceOnUse");
+            const p = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+            p.setAttribute("points", "0 0, 8 3, 0 6");
+            p.style.setProperty("fill", color, "important");
+            m.appendChild(p);
+            return m;
+        };
+        defs.appendChild(makeMarker("gantt-arrow", "#555"));
+        defs.appendChild(makeMarker("gantt-arrow-critical", "#ff4444"));
+        defs.appendChild(makeMarker("gantt-arrow-milestone", "#8e44ad"));
         svg.appendChild(defs);
 
         let hasArrows = false;
         const cRect = container[0].getBoundingClientRect();
+        const scrollL = container.scrollLeft();
+        const scrollT = container.scrollTop();
+
+        const getBlockCoords = (block) => {
+            const rect = block[0].getBoundingClientRect();
+            const left = rect.left - cRect.left + scrollL;
+            const right = rect.right - cRect.left + scrollL;
+            const midY = rect.top + rect.height / 2 - cRect.top + scrollT;
+            return { left, right, midY };
+        };
 
         for (const task of this.data) {
-            if (!task.dependencies || !task.dependencies.length) continue;
+            if (task.dependencies && task.dependencies.length) {
+                const fromBlock = this.getBlockElement(task.id);
+                if (fromBlock) {
+                    const from = getBlockCoords(fromBlock);
+                    for (const depId of task.dependencies) {
+                        const toBlock = this.getBlockElement(depId);
+                        if (!toBlock) continue;
+                        const to = getBlockCoords(toBlock);
 
-            const fromBlock = this.getBlockElement(task.id);
-            if (!fromBlock) continue;
+                        const isCritLink = this.isOnCriticalChain && this.isOnCriticalChain(task.id) && this.isOnCriticalChain(depId);
+                        this._appendArrow(svg, from, to, isCritLink ? "#ff4444" : "#555", isCritLink ? 2.5 : 1.5, isCritLink ? "gantt-arrow-critical" : "gantt-arrow");
+                        hasArrows = true;
+                    }
+                }
+            }
 
-            for (const depId of task.dependencies) {
-                const toBlock = this.getBlockElement(depId);
-                if (!toBlock) continue;
+            if (task.milestone_sources && task.milestone_sources.length) {
+                const milestoneBlock = this.getBlockElement(task.id);
+                if (milestoneBlock) {
+                    const to = getBlockCoords(milestoneBlock);
+                    for (const srcId of task.milestone_sources) {
+                        const srcBlock = this.getBlockElement(srcId);
+                        if (!srcBlock) continue;
+                        const from = getBlockCoords(srcBlock);
 
-                const fromEl = fromBlock[0];
-                const fromML = (parseInt(fromEl.style.marginLeft) || 0) + (parseInt(fromEl.style.left) || 0);
-                const fromW = parseInt(fromEl.style.width) || fromBlock.outerWidth();
-                const fromRect = fromEl.getBoundingClientRect();
-                const fromMidY = fromRect.top + fromRect.height / 2 - cRect.top + container.scrollTop();
-
-                const toEl = toBlock[0];
-                const toML = (parseInt(toEl.style.marginLeft) || 0) + (parseInt(toEl.style.left) || 0);
-                const toRect = toEl.getBoundingClientRect();
-                const toMidY = toRect.top + toRect.height / 2 - cRect.top + container.scrollTop();
-
-                const x1 = fromML + fromW;
-                const y1 = fromMidY;
-                const x2 = toML;
-                const y2 = toMidY;
-
-                const cp = Math.max(Math.abs(x2 - x1) * 0.4, 30);
-                const d = `M${x1},${y1} C${x1 + cp},${y1} ${x2 - cp},${y2} ${x2},${y2}`;
-
-                const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-                path.setAttribute("d", d);
-                path.setAttribute("fill", "none");
-                path.setAttribute("stroke", "#000");
-                path.setAttribute("stroke-width", "2");
-                path.setAttribute("marker-end", "url(#gantt-arrow)");
-                svg.appendChild(path);
-                hasArrows = true;
+                        this._appendArrow(svg, from, to, "#8e44ad", 2, "gantt-arrow-milestone", "6 3");
+                        hasArrows = true;
+                    }
+                }
             }
         }
 
@@ -95,6 +106,25 @@ class GanttDependencies extends GanttRenderer {
             container.css("position", "relative");
             container.append(svg);
         }
+    }
+
+    _appendArrow(svg, from, to, color, width, markerId, dash) {
+        const x1 = from.right;
+        const y1 = from.midY;
+        const x2 = to.left;
+        const y2 = to.midY;
+
+        const cp = Math.max(Math.abs(x2 - x1) * 0.4, 30);
+        const d = `M${x1},${y1} C${x1 + cp},${y1} ${x2 - cp},${y2} ${x2},${y2}`;
+
+        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        path.setAttribute("d", d);
+        path.style.setProperty("fill", "none", "important");
+        path.style.setProperty("stroke", color, "important");
+        path.style.setProperty("stroke-width", `${width}px`, "important");
+        path.setAttribute("marker-end", `url(#${markerId})`);
+        if (dash) path.style.setProperty("stroke-dasharray", dash, "important");
+        svg.appendChild(path);
     }
 
     highlightDependencyViolations() {
@@ -111,6 +141,21 @@ class GanttDependencies extends GanttRenderer {
                 if (block) block.addClass("ganttview-dep-violation");
             }
         }
+
+        for (const task of this.data) {
+            if (!task.milestone_sources || !task.milestone_sources.length) continue;
+            if (!task.end) continue;
+            for (const srcId of task.milestone_sources) {
+                const src = this._taskIndex[srcId];
+                if (!src || !src.end) continue;
+                if (this.compareDate(src.end, task.end) === 1) {
+                    const srcBlock = this.getBlockElement(srcId);
+                    if (srcBlock) srcBlock.addClass("ganttview-dep-violation");
+                    const msBlock = this.getBlockElement(task.id);
+                    if (msBlock) msBlock.addClass("ganttview-dep-violation");
+                }
+            }
+        }
     }
 
     enforceDependencyConstraint(block) {
@@ -124,6 +169,41 @@ class GanttDependencies extends GanttRenderer {
         }
 
         this.enforceBlockedConstraint(record.id);
+        this.enforceMilestoneConstraint(record);
+    }
+
+    enforceMilestoneConstraint(record) {
+        if (!record.milestone_sources || !record.milestone_sources.length) return;
+        if (!record.end) return;
+
+        let latestSrcEnd = null;
+        for (const srcId of record.milestone_sources) {
+            const src = this._taskIndex[srcId];
+            if (!src || !src.end) continue;
+            if (!latestSrcEnd || this.compareDate(src.end, latestSrcEnd) === 1) {
+                latestSrcEnd = src.end;
+            }
+        }
+        if (!latestSrcEnd) return;
+
+        if (this.compareDate(record.end, latestSrcEnd) === -1) {
+            const duration = this.daysBetween(record.start, record.end);
+            record.end = this.cloneDate(latestSrcEnd);
+            record.start = this.addDays(this.cloneDate(record.end), -duration);
+
+            const block = this.getBlockElement(record.id);
+            if (!block) return;
+
+            const dayIndex = this.daysBetween(this._startDate, record.start);
+            const cellCount = duration + 1;
+            const px = this.calcBlockPixels(dayIndex, cellCount);
+
+            block[0].style.marginLeft = `${px.marginLeft}px`;
+            block[0].style.width = `${px.width}px`;
+            block.attr("title", this.getBarTitleText(record));
+            block.data("record", record);
+            this.saveRecord(record);
+        }
     }
 
     enforceBlockedConstraint(taskId) {
