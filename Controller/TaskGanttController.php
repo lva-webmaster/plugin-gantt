@@ -35,12 +35,15 @@ class TaskGanttController extends BaseController
             $filter->getQuery()->asc('column_position')->asc(TaskModel::TABLE.'.position');
         }
 
+        $hasSubtaskdate = class_exists('\Kanboard\Plugin\Subtaskdate\Plugin');
+
         $this->response->html($this->helper->layout->app('Gantt:task_gantt/show', array(
             'project' => $project,
             'title' => $project['name'],
             'description' => $this->helper->projectHeader->getDescription($project),
             'sorting' => $sorting,
             'tasks' => $filter->format($this->taskGanttFormatter),
+            'has_subtaskdate' => $hasSubtaskdate,
         )));
     }
 
@@ -69,6 +72,30 @@ class TaskGanttController extends BaseController
                 $this->response->json(array('message' => 'Unable to save task'), 400);
             } else {
                 $this->response->json(array('message' => 'OK'), 201);
+            }
+        } else {
+            $this->response->json(array('message' => 'Ignored'), 200);
+        }
+    }
+
+    /**
+     * Save subtask due date
+     */
+    public function saveSubtask()
+    {
+        $this->getProject();
+        $changes = $this->request->getJson();
+
+        if (! empty($changes['id']) && ! empty($changes['due_date'])) {
+            $result = $this->subtaskModel->update(array(
+                'id' => (int) $changes['id'],
+                'due_date' => strtotime($changes['due_date']),
+            ));
+
+            if ($result) {
+                $this->response->json(array('message' => 'OK'), 201);
+            } else {
+                $this->response->json(array('message' => 'Unable to save subtask'), 400);
             }
         } else {
             $this->response->json(array('message' => 'Ignored'), 200);

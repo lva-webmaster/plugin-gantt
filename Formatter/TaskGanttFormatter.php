@@ -40,8 +40,12 @@ class TaskGanttFormatter extends BaseFormatter implements FormatterInterface
         $dependencyLinkId = (int) $this->configModel->get('gantt_dependency_link_id', 2);
         $dependencies = $this->getDependencies($taskIds, $dependencyLinkId);
 
+        $hasSubtaskdate = class_exists('\Kanboard\Plugin\Subtaskdate\Plugin');
+        $subtasks = $hasSubtaskdate ? $this->getSubtasks($taskIds) : array();
+
         foreach ($bars as &$bar) {
             $bar['dependencies'] = isset($dependencies[$bar['id']]) ? $dependencies[$bar['id']] : array();
+            $bar['subtasks'] = isset($subtasks[$bar['id']]) ? $subtasks[$bar['id']] : array();
         }
 
         return $bars;
@@ -78,6 +82,56 @@ class TaskGanttFormatter extends BaseFormatter implements FormatterInterface
         }
 
         return $deps;
+    }
+
+    /**
+     * Get subtasks with due dates for a set of tasks
+     *
+     * @access private
+     * @param  array  $taskIds
+     * @return array  Keyed by task_id => array of subtask data
+     */
+    private function getSubtasks(array $taskIds)
+    {
+        if (empty($taskIds)) {
+            return array();
+        }
+
+        $tz = $this->configModel->get('application_timezone', 'UTC');
+        $statusLabels = array(0 => 'Todo', 1 => 'In progress', 2 => 'Done');
+
+        $rows = $this->db
+            ->table('subtasks')
+            ->columns('subtasks.id', 'subtasks.title', 'subtasks.status', 'subtasks.due_date', 'subtasks.task_id', 'subtasks.user_id', 'users.username', 'users.name')
+            ->in('subtasks.task_id', $taskIds)
+            ->join('users', 'id', 'user_id', 'subtasks')
+            ->asc('subtasks.position')
+            ->findAll();
+
+        $result = array();
+        foreach ($rows as $row) {
+            $sub = array(
+                'id' => (int) $row['id'],
+                'title' => $row['title'],
+                'status' => (int) $row['status'],
+                'status_label' => isset($statusLabels[$row['status']]) ? $statusLabels[$row['status']] : '',
+                'assignee' => $row['name'] ?: $row['username'] ?: '',
+            );
+
+            if (!empty($row['due_date'])) {
+                $dt = new \DateTime('@'.$row['due_date']);
+                $dt->setTimezone(new \DateTimeZone($tz));
+                $sub['due_date'] = array(
+                    (int) $dt->format('Y'),
+                    (int) $dt->format('n'),
+                    (int) $dt->format('j'),
+                );
+            }
+
+            $result[(int) $row['task_id']][] = $sub;
+        }
+
+        return $result;
     }
 
     /**

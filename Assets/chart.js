@@ -106,12 +106,207 @@ Gantt.prototype.snapAllBlocks = function() {
     jQuery("div.ganttview-block", this.options.container).each(function() {
         var block = jQuery(this);
         var record = block.data("record");
-        if (!record || !record.start || !record.end) return;
-        var dayIndex = self.daysBetween(self._startDate, record.start);
-        var cellCount = self.daysBetween(record.start, record.end) + 1;
-        var px = self.calcBlockPixels(dayIndex, cellCount);
-        this.style.marginLeft = px.marginLeft + "px";
-        this.style.width = px.width + "px";
+        if (record && record.start && record.end) {
+            var dayIndex = self.daysBetween(self._startDate, record.start);
+            var cellCount = self.daysBetween(record.start, record.end) + 1;
+            var px = self.calcBlockPixels(dayIndex, cellCount);
+            this.style.marginLeft = px.marginLeft + "px";
+            this.style.width = px.width + "px";
+            return;
+        }
+        var sub = block.data("subtask");
+        if (sub && sub.due_date) {
+            var subDate = new Date(sub.due_date[0], sub.due_date[1] - 1, sub.due_date[2]);
+            var subIdx = self.daysBetween(self._startDate, subDate);
+            var subPx = self.calcBlockPixels(subIdx, 1);
+            this.style.marginLeft = subPx.marginLeft + "px";
+            this.style.width = subPx.width + "px";
+        }
+    });
+};
+
+// Expanded subtask state persistence
+Gantt.prototype.getExpandedKey = function() {
+    return 'gantt-expanded-' + window.location.pathname + window.location.search;
+};
+
+Gantt.prototype.getExpandedTasks = function() {
+    try { return JSON.parse(localStorage.getItem(this.getExpandedKey())) || []; }
+    catch(e) { return []; }
+};
+
+Gantt.prototype.addExpandedTask = function(taskId) {
+    var list = this.getExpandedTasks();
+    if (list.indexOf(taskId) === -1) list.push(taskId);
+    localStorage.setItem(this.getExpandedKey(), JSON.stringify(list));
+};
+
+Gantt.prototype.removeExpandedTask = function(taskId) {
+    var list = this.getExpandedTasks().filter(function(id) { return id !== taskId; });
+    localStorage.setItem(this.getExpandedKey(), JSON.stringify(list));
+};
+
+Gantt.prototype.restoreExpandedTasks = function() {
+    var list = this.getExpandedTasks();
+    for (var i = 0; i < list.length; i++) {
+        var toggle = jQuery('.ganttview-subtask-toggle[data-task-id="' + list[i] + '"]', this.options.container);
+        if (toggle.length) {
+            toggle.find('i').removeClass('fa-caret-right').addClass('fa-caret-down');
+            var sel = '[data-parent-task="' + list[i] + '"]';
+            jQuery('.ganttview-subtask-row' + sel + ', .ganttview-subtask-block-row' + sel + ', .ganttview-subtask-grid-row' + sel, this.options.container).show();
+        }
+    }
+};
+
+// Setup draggable for subtask blocks
+Gantt.prototype.listenForSubtaskMove = function() {
+    var self = this;
+    var rcw = Math.round(this._renderedCellWidth || this.options.cellWidth);
+
+    jQuery("div.ganttview-subtask-block", this.options.container).draggable({
+        axis: "x",
+        delay: 300,
+        cancel: false,
+        grid: [rcw, rcw],
+        start: function() {
+            var parent = jQuery(this).data("parent-record");
+            if (parent && parent.end) {
+                var maxDayIndex = self.daysBetween(self._startDate, parent.end);
+                self._subtaskMaxLeft = self.calcBlockPixels(maxDayIndex, 1).marginLeft;
+            } else {
+                self._subtaskMaxLeft = null;
+            }
+            self.showDateIndicator(jQuery(this), self._startDate);
+        },
+        drag: function(event, ui) {
+            var marginLeft = parseInt(jQuery(this).css("margin-left")) || 0;
+            var effectiveLeft = marginLeft + ui.position.left;
+            var snapped = self.snapToCell(effectiveLeft);
+            if (self._subtaskMaxLeft !== null && snapped > self._subtaskMaxLeft) {
+                snapped = self._subtaskMaxLeft;
+            }
+            ui.position.left = snapped - marginLeft;
+            self.updateDateIndicator(jQuery(this), self._startDate);
+        },
+        stop: function() {
+            self.hideDateIndicator();
+            var block = jQuery(this);
+            var pos = self.readBlockPosition(block);
+            var px = self.calcBlockPixels(pos.dayIndex, 1);
+
+            var el = block[0];
+            el.style.top = "";
+            el.style.left = "";
+            el.style.position = "relative";
+            el.style.marginLeft = px.marginLeft + "px";
+            el.style.width = px.width + "px";
+
+            var newDate = self.addDays(self.cloneDate(self._startDate), pos.dayIndex);
+            var sub = block.data("subtask");
+            if (sub) {
+                sub.due_date = [newDate.getFullYear(), newDate.getMonth() + 1, newDate.getDate()];
+                var dateStr = newDate.getFullYear() + '-' + (newDate.getMonth() + 1) + '-' + newDate.getDate();
+                self.saveSubtask(sub.id, dateStr);
+            }
+            self.highlightSubtaskViolations();
+        }
+    });
+};
+
+Gantt.prototype.highlightSubtaskViolations = function() {
+    var container = jQuery(this.options.container);
+    container.find(".ganttview-subtask-block").removeClass("ganttview-dep-violation");
+    container.find(".ganttview-subtask-warning").remove();
+
+    var tasksWithViolations = {};
+
+    for (var i = 0; i < this.data.length; i++) {
+        var task = this.data[i];
+        if (!task.subtasks || !task.subtasks.length || !task.end) continue;
+
+        for (var s = 0; s < task.subtasks.length; s++) {
+            var sub = task.subtasks[s];
+            if (!sub.due_date) continue;
+            var subDate = new Date(sub.due_date[0], sub.due_date[1] - 1, sub.due_date[2]);
+            if (this.compareDate(subDate, task.end) === 1) {
+                tasksWithViolations[task.id] = true;
+                var block = null;
+                container.find(".ganttview-subtask-block").each(function() {
+                    var d = jQuery(this).data("subtask");
+                    if (d && d.id === sub.id) { block = jQuery(this); return false; }
+                });
+                if (block) block.addClass("ganttview-dep-violation");
+            }
+        }
+    }
+
+    container.find(".ganttview-subtask-toggle").each(function() {
+        var taskId = jQuery(this).data("task-id");
+        if (tasksWithViolations[taskId]) {
+            jQuery(this).after(jQuery("<i>", {
+                "class": "fa fa-exclamation-triangle ganttview-subtask-warning",
+                "title": "Subtask scheduled after parent task due date",
+                "style": "color:#e74c3c;margin-right:3px;font-size:11px"
+            }));
+        }
+    });
+};
+
+Gantt.prototype.moveSubtasksWithParent = function(record, oldStart, oldEnd) {
+    if (!record.subtasks || !record.subtasks.length) return;
+    if (!oldStart || !record.start) return;
+
+    var dayShift = this.daysBetween(oldStart, record.start);
+    if (dayShift === 0 && this.compareDate(oldEnd, record.end) === 0) return;
+
+    var self = this;
+    var container = jQuery(this.options.container);
+
+    for (var i = 0; i < record.subtasks.length; i++) {
+        var sub = record.subtasks[i];
+        if (!sub.due_date) continue;
+
+        var subDate = new Date(sub.due_date[0], sub.due_date[1] - 1, sub.due_date[2]);
+        var newSubDate = this.addDays(this.cloneDate(subDate), dayShift);
+
+        if (this.compareDate(newSubDate, record.end) === 1) {
+            newSubDate = this.cloneDate(record.end);
+        }
+        if (this.compareDate(newSubDate, record.start) === -1) {
+            newSubDate = this.cloneDate(record.start);
+        }
+
+        sub.due_date = [newSubDate.getFullYear(), newSubDate.getMonth() + 1, newSubDate.getDate()];
+
+        var block = null;
+        container.find(".ganttview-subtask-block").each(function() {
+            var d = jQuery(this).data("subtask");
+            if (d && d.id === sub.id) { block = jQuery(this); return false; }
+        });
+
+        if (block) {
+            var dayIndex = this.daysBetween(this._startDate, newSubDate);
+            var px = this.calcBlockPixels(dayIndex, 1);
+            block[0].style.marginLeft = px.marginLeft + "px";
+            block[0].style.width = px.width + "px";
+        }
+
+        var dateStr = newSubDate.getFullYear() + '-' + (newSubDate.getMonth() + 1) + '-' + newSubDate.getDate();
+        this.saveSubtask(sub.id, dateStr);
+    }
+};
+
+Gantt.prototype.saveSubtask = function(subtaskId, dueDateStr) {
+    var self = this;
+    $.ajax({
+        cache: false,
+        url: $(this.options.container).data("save-subtask-url"),
+        contentType: "application/json",
+        type: "POST",
+        processData: false,
+        data: JSON.stringify({ id: subtaskId, due_date: dueDateStr }),
+        success: function() { self.showSaveStatus('Saved'); },
+        error: function() { self.showSaveStatus('Save failed', true); }
     });
 };
 
@@ -158,6 +353,7 @@ Gantt.prototype.show = function() {
     this._startDate = range[0];
     this._endDate = range[1];
     var container = $(this.options.container);
+    this._hasSubtaskdate = container.data('has-subtaskdate') === 1;
     var chart = jQuery("<div>", { "class": "ganttview" });
 
     chart.append(this.renderVerticalHeader());
@@ -186,13 +382,39 @@ Gantt.prototype.show = function() {
     this.highlightDependencyViolations();
     this.renderDependencyArrows();
 
-    jQuery(this.options.container).on('click', '.ganttview-block-edit', function(e) {
+    var self = this;
+
+    jQuery(this.options.container).on('click', '.ganttview-subtask-toggle', function(e) {
         e.preventDefault();
-        e.stopPropagation();
-        KB.modal.open(this.getAttribute('href'), 'large', false);
+        var taskId = jQuery(this).data('task-id');
+        var icon = jQuery(this).find('i');
+        var expanded = icon.hasClass('fa-caret-down');
+        icon.toggleClass('fa-caret-right fa-caret-down');
+        var sel = '[data-parent-task="' + taskId + '"]';
+        var targets = jQuery('.ganttview-subtask-row' + sel + ', .ganttview-subtask-block-row' + sel + ', .ganttview-subtask-grid-row' + sel, self.options.container);
+        if (expanded) {
+            targets.slideUp(150);
+            self.removeExpandedTask(taskId);
+        } else {
+            targets.slideDown(150);
+            self.addExpandedTask(taskId);
+        }
+        setTimeout(function() { self.snapTodayMarker(); self.renderDependencyArrows(); }, 200);
     });
 
-    var self = this;
+    jQuery(this.options.container).on('click', '.ganttview-block-edit, .ganttview-vtheader-edit, .ganttview-subtask-edit', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        KB.modal.open(this.getAttribute('href'), 'medium', false);
+    });
+
+    if (this._hasSubtaskdate) {
+        this.listenForSubtaskMove();
+        this.restoreExpandedTasks();
+        this.highlightSubtaskViolations();
+    }
+    this.snapTodayMarker();
+    this.renderDependencyArrows();
     var resnapTimer = null;
     window.addEventListener('resize', function() {
         clearTimeout(resnapTimer);
@@ -413,8 +635,23 @@ Gantt.prototype.renderVerticalHeader = function() {
             .append("&nbsp;");
 
         if (this.data[i].type == "task") {
-            content.append(jQuery('<strong>').text('#'+this.data[i].id+' '));
-            content.append(jQuery("<a>", {"href": this.data[i].link, "title": this.data[i].title}).text(this.data[i].title));
+            var task = this.data[i];
+            if (task.subtasks && task.subtasks.length) {
+                var toggle = jQuery("<a>", {"class": "ganttview-subtask-toggle", "href": "#", "data-task-id": task.id})
+                    .append(jQuery("<i>", {"class": "fa fa-caret-right"}));
+                content.append(toggle);
+            }
+            var editUrl = task.link.replace('action=show', 'action=edit').replace('TaskViewController', 'TaskModificationController');
+            content.append(jQuery("<a>", {
+                "class": "ganttview-vtheader-edit js-modal-large",
+                "href": editUrl,
+                "title": "Edit"
+            }).append(jQuery("<i>", {"class": "fa fa-edit"})));
+            content.append(jQuery('<strong>').text('#'+task.id+' '));
+            content.append(jQuery("<a>", {"href": task.link, "title": task.title}).text(task.title));
+            if (task.assignee) {
+                content.append(jQuery('<span>', {"class": "ganttview-vtheader-assignee"}).text(' — ' + task.assignee));
+            }
         }
         else {
             content
@@ -426,6 +663,31 @@ Gantt.prototype.renderVerticalHeader = function() {
         }
 
         seriesDiv.append(jQuery("<div>", {"class": "ganttview-vtheader-series-name"}).append(content));
+
+        if (this.data[i].type == "task" && this.data[i].subtasks && this.data[i].subtasks.length) {
+            var subs = this.data[i].subtasks;
+            var taskId = this.data[i].id;
+            for (var s = 0; s < subs.length; s++) {
+                var statusIcon = subs[s].status === 2 ? 'fa-check-square-o' : subs[s].status === 1 ? 'fa-minus-square-o' : 'fa-square-o';
+                var subEditUrl = '/?controller=SubtaskController&action=edit&task_id=' + taskId + '&subtask_id=' + subs[s].id;
+                var subContent = jQuery("<span>")
+                    .append(jQuery("<a>", {
+                        "class": "ganttview-vtheader-edit ganttview-subtask-edit",
+                        "href": subEditUrl,
+                        "title": "Edit subtask"
+                    }).append(jQuery("<i>", {"class": "fa fa-edit"})))
+                    .append(jQuery("<i>", {"class": "fa " + statusIcon, "style": "margin-right:4px;opacity:0.5"}))
+                    .append(jQuery("<span>").text(subs[s].title));
+                if (subs[s].assignee) {
+                    subContent.append(jQuery('<span>', {"class": "ganttview-vtheader-assignee"}).text(' — ' + subs[s].assignee));
+                }
+                seriesDiv.append(jQuery("<div>", {
+                    "class": "ganttview-vtheader-series-name ganttview-subtask-row",
+                    "data-parent-task": taskId,
+                    "style": "display:none; padding-left:24px"
+                }).append(subContent));
+            }
+        }
     }
 
     itemDiv.append(seriesDiv);
@@ -481,6 +743,13 @@ Gantt.prototype.snapTodayMarker = function() {
     var px = this.calcBlockPixels(this._todayOffset, 1);
     var cw = this._renderedCellWidth || this.options.cellWidth;
     marker.css("left", (px.marginLeft + Math.floor(cw / 2)) + "px");
+    var container = jQuery("div.ganttview-slide-container", this.options.container);
+    if (container.length) {
+        var cRect = container[0].getBoundingClientRect();
+        var blocks = jQuery(".ganttview-blocks", this.options.container);
+        var bottom = blocks.length ? blocks[0].getBoundingClientRect().bottom - cRect.top : cRect.height;
+        marker.css("height", bottom + "px");
+    }
 };
 
 Gantt.prototype.scrollToToday = function() {
@@ -546,6 +815,14 @@ Gantt.prototype.renderGrid = function(dates) {
 
     for (var i = 0; i < this.data.length; i++) {
         gridDiv.append(rowDiv.clone());
+        if (this.data[i].subtasks && this.data[i].subtasks.length) {
+            for (var s = 0; s < this.data[i].subtasks.length; s++) {
+                var subGridRow = rowDiv.clone().addClass("ganttview-subtask-grid-row")
+                    .attr("data-parent-task", this.data[i].id)
+                    .css("display", "none");
+                gridDiv.append(subGridRow);
+            }
+        }
     }
 
     return gridDiv;
@@ -557,6 +834,15 @@ Gantt.prototype.addBlockContainers = function() {
 
     for (var i = 0; i < this.data.length; i++) {
         blocksDiv.append(jQuery("<div>", { "class": "ganttview-block-container" }));
+        if (this.data[i].subtasks && this.data[i].subtasks.length) {
+            for (var s = 0; s < this.data[i].subtasks.length; s++) {
+                blocksDiv.append(jQuery("<div>", {
+                    "class": "ganttview-block-container ganttview-subtask-block-row",
+                    "data-parent-task": this.data[i].id,
+                    "style": "display:none"
+                }));
+            }
+        }
     }
 
     return blocksDiv;
@@ -604,6 +890,27 @@ Gantt.prototype.addBlocks = function(slider, start) {
 
         jQuery(rows[rowIdx]).append(block);
         rowIdx = rowIdx + 1;
+
+        if (series.subtasks && series.subtasks.length) {
+            for (var s = 0; s < series.subtasks.length; s++) {
+                var sub = series.subtasks[s];
+                if (sub.due_date) {
+                    var subDate = new Date(sub.due_date[0], sub.due_date[1] - 1, sub.due_date[2]);
+                    var subOffset = this.daysBetween(start, subDate);
+                    var subPx = this.calcBlockPixels(subOffset, 1);
+                    var statusClass = sub.status === 2 ? ' ganttview-subtask-done' : sub.status === 1 ? ' ganttview-subtask-inprogress' : '';
+                    var subBlock = jQuery("<div>", {
+                        "class": "ganttview-block ganttview-subtask-block ganttview-block-movable" + statusClass,
+                        "css": { "width": subPx.width + "px", "margin-left": subPx.marginLeft + "px" },
+                        "title": sub.title + (sub.assignee ? ' (' + sub.assignee + ')' : '') + '\n' + sub.status_label + '\nDue: ' + this.dayName(subDate) + ' ' + $.datepicker.formatDate(this.dateFormat, subDate)
+                    });
+                    subBlock.data("subtask", sub);
+                    subBlock.data("parent-record", series);
+                    jQuery(rows[rowIdx]).append(subBlock);
+                }
+                rowIdx = rowIdx + 1;
+            }
+        }
     }
 };
 
@@ -710,10 +1017,12 @@ Gantt.prototype.getTooltipFooter = function(record, tooltip) {
     if (record.not_defined) {
         tooltip.append($('<br>')).append($('<em>').text(notDefinedLabel));
     } else {
+        var startText = record.start_formatted || $.datepicker.formatDate(this.dateFormat, record.start);
+        var endText = record.end_formatted || $.datepicker.formatDate(this.dateFormat, record.end);
         tooltip.append($('<br>'));
-        tooltip.append($('<strong>').text(startDateLabel + ' ' + $.datepicker.formatDate(this.dateFormat, record.start)));
+        tooltip.append($('<strong>').text(startDateLabel + ' ' + startText));
         tooltip.append($('<br>'));
-        tooltip.append($('<strong>').text(startEndLabel + ' ' + $.datepicker.formatDate(this.dateFormat, record.end)));
+        tooltip.append($('<strong>').text(startEndLabel + ' ' + endText));
     }
 
     return tooltip;
@@ -756,7 +1065,7 @@ Gantt.prototype.listenForBlockResize = function() {
     var self = this;
 
     var rcw = Math.round(this._renderedCellWidth || this.options.cellWidth);
-    jQuery("div.ganttview-block", this.options.container).resizable({
+    jQuery("div.ganttview-block:not(.ganttview-subtask-block)", this.options.container).resizable({
         grid: [rcw, rcw],
         handles: "e,w",
         cancel: ".ganttview-block-edit",
@@ -822,10 +1131,14 @@ Gantt.prototype.listenForBlockResize = function() {
                 self.expandRight(daysNeeded);
             }
 
+            var record = block.data("record");
+            var oldStart = record ? self.cloneDate(record.start) : null;
+            var oldEnd = record ? self.cloneDate(record.end) : null;
             self.updateDataAndPosition(block, self._startDate);
             self.enforceDependencyConstraint(block);
+            if (record) self.moveSubtasksWithParent(record, oldStart, oldEnd);
             self.saveRecord(block.data("record"));
-            self.highlightDependencyViolations();
+            self.highlightDependencyViolations(); self.highlightSubtaskViolations();
             self.renderDependencyArrows();
         }
     });
@@ -836,7 +1149,7 @@ Gantt.prototype.listenForBlockMove = function() {
     var self = this;
 
     var rcw = Math.round(this._renderedCellWidth || this.options.cellWidth);
-    jQuery("div.ganttview-block", this.options.container).draggable({
+    jQuery("div.ganttview-block:not(.ganttview-subtask-block)", this.options.container).draggable({
         axis: "x",
         delay: 300,
         cancel: ".ganttview-block-edit",
@@ -866,10 +1179,14 @@ Gantt.prototype.listenForBlockMove = function() {
             self.hideDateIndicator();
             self._activeBlock = null;
             var block = jQuery(this);
+            var record = block.data("record");
+            var oldStart = record ? self.cloneDate(record.start) : null;
+            var oldEnd = record ? self.cloneDate(record.end) : null;
             self.updateDataAndPosition(block, self._startDate);
             self.enforceDependencyConstraint(block);
+            if (record) self.moveSubtasksWithParent(record, oldStart, oldEnd);
             self.saveRecord(block.data("record"));
-            self.highlightDependencyViolations();
+            self.highlightDependencyViolations(); self.highlightSubtaskViolations();
             self.renderDependencyArrows();
         }
     });

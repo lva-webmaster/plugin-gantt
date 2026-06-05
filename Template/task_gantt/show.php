@@ -14,11 +14,17 @@
         </ul>
     </div>
 
+    <?php if (empty($has_subtaskdate)): ?>
+        <p class="alert"><i class="fa fa-info-circle"></i> Install the <a href="https://github.com/eSkiSo/Subtaskdate" target="_blank"><strong>Subtaskdate plugin</strong></a> to enable subtask due dates on the Gantt chart.</p>
+    <?php endif ?>
+
     <?php if (! empty($tasks)): ?>
         <div
             id="gantt-chart"
             data-records='<?= json_encode($tasks, JSON_HEX_APOS) ?>'
             data-save-url="<?= $this->url->href('TaskGanttController', 'save', array('project_id' => $project['id'], 'plugin' => 'Gantt')) ?>"
+            data-save-subtask-url="<?= $this->url->href('TaskGanttController', 'saveSubtask', array('project_id' => $project['id'], 'plugin' => 'Gantt')) ?>"
+            data-has-subtaskdate="<?= empty($has_subtaskdate) ? '0' : '1' ?>"
             data-label-start-date="<?= t('Start date:') ?>"
             data-label-end-date="<?= t('Due date:') ?>"
             data-label-assignee="<?= t('Assignee:') ?>"
