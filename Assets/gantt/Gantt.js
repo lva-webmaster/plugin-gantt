@@ -178,7 +178,7 @@ class Gantt extends GanttInteraction {
             this.snapAllBlocks();
             this.snapTodayMarker();
             this.renderDependencyArrows();
-            requestAnimationFrame(() => { expanding = false; });
+            setTimeout(() => { expanding = false; }, 300);
         };
 
         container.on('scroll.gantt-infinite', () => {
