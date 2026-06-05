@@ -193,6 +193,20 @@ div.ganttview-block:hover .ganttview-block-edit {
     opacity: 1 !important;
 }
 
+div.ganttview-block.ganttview-block-narrow .ganttview-block-text {
+    display: none;
+}
+
+div.ganttview-block.ganttview-block-narrow .ganttview-block-edit {
+    left: 0;
+    right: auto;
+    width: 100%;
+}
+
+div.ganttview-block.ganttview-block-narrow .ganttview-block-edit i {
+    padding: 0 !important;
+}
+
 div.ganttview-block div.ui-resizable-handle.ui-resizable-s {
     bottom: 0;
 }

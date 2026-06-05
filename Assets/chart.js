@@ -595,8 +595,10 @@ Gantt.prototype.addBlocks = function(slider, start) {
                 "href": editUrl
             }).append(jQuery("<i>", { "class": "fa fa-edit" }));
             block.append(editBtn);
+            if (size < 3) block.addClass("ganttview-block-narrow");
         }
 
+        block.attr("title", this.getBarTitleText(series));
         block.data("record", series);
         this.setBarColor(block, series);
 
@@ -638,9 +640,13 @@ Gantt.prototype.getBarTitleText = function(record) {
         parts.push($(this.options.container).data("label-not-defined"));
     } else {
         var days = this.daysBetween(record.start, record.end) + 1;
-        var startStr = this.dayName(record.start) + ' ' + $.datepicker.formatDate(this.dateFormat, record.start);
-        var endStr = this.dayName(record.end) + ' ' + $.datepicker.formatDate(this.dateFormat, record.end);
-        parts.push(startStr + ' → ' + endStr + ' (' + days + 'd)');
+        if (record.start_formatted && record.end_formatted) {
+            parts.push(record.start_formatted + ' → ' + record.end_formatted + ' (' + days + 'd)');
+        } else {
+            var startStr = this.dayName(record.start) + ' ' + $.datepicker.formatDate(this.dateFormat, record.start);
+            var endStr = this.dayName(record.end) + ' ' + $.datepicker.formatDate(this.dateFormat, record.end);
+            parts.push(startStr + ' → ' + endStr + ' (' + days + 'd)');
+        }
     }
 
     return parts.join('\n');
@@ -1076,8 +1082,15 @@ Gantt.prototype.updateDataAndPosition = function(block, startDate) {
     record.date_started_not_defined = false;
     record.date_due_not_defined = false;
 
-    if (record.type === "task" && pos.cellCount > 1) {
-        this.addTaskBarText(jQuery("div.ganttview-block-text", block), record, pos.cellCount);
+    if (record.type === "task") {
+        var textEl = jQuery("div.ganttview-block-text", block);
+        textEl.empty();
+        this.addTaskBarText(textEl, record, pos.cellCount);
+        if (pos.cellCount < 3) {
+            block.addClass("ganttview-block-narrow");
+        } else {
+            block.removeClass("ganttview-block-narrow");
+        }
     }
 
     block.attr("title", this.getBarTitleText(record));

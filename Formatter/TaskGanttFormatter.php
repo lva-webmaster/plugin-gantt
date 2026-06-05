@@ -96,6 +96,15 @@ class TaskGanttFormatter extends BaseFormatter implements FormatterInterface
         $start = $task['date_started'] ?: time();
         $end = $task['date_due'] ?: $start;
 
+        $tz = $this->configModel->get('application_timezone', 'UTC');
+        $dateFmt = $this->configModel->get('application_date_format', 'm/d/Y');
+        $timeFmt = $this->configModel->get('application_time_format', 'g:i a');
+        $dtFmt = $dateFmt . ' ' . $timeFmt . ' T';
+        $dtStart = new \DateTime('@'.$start);
+        $dtStart->setTimezone(new \DateTimeZone($tz));
+        $dtEnd = new \DateTime('@'.$end);
+        $dtEnd->setTimezone(new \DateTimeZone($tz));
+
         return array(
             'type' => 'task',
             'id' => $task['id'],
@@ -110,6 +119,8 @@ class TaskGanttFormatter extends BaseFormatter implements FormatterInterface
                 (int) date('n', $end),
                 (int) date('j', $end),
             ),
+            'start_formatted' => $dtStart->format($dtFmt),
+            'end_formatted' => $dtEnd->format($dtFmt),
             'column_title' => $task['column_name'],
             'assignee' => $task['assignee_name'] ?: $task['assignee_username'],
             'category' => isset($task['category_name']) ? $task['category_name'] : '',
