@@ -24,8 +24,8 @@ class Gantt extends GanttInteraction {
 
         this.measureCellWidth();
         this.snapAllBlocks();
+        this.refreshBlockText();
         this.snapTodayMarker();
-        this.scrollToToday();
 
         jQuery("div.ganttview-grid-row div.ganttview-grid-row-cell:last-child", container).addClass("last");
         jQuery("div.ganttview-hzheader-days div.ganttview-hzheader-day:last-child", container).addClass("last");
@@ -65,6 +65,7 @@ class Gantt extends GanttInteraction {
             resnapTimer = setTimeout(() => {
                 this.measureCellWidth();
                 this.snapAllBlocks();
+                this.refreshBlockText();
                 this.snapTodayMarker();
                 this.renderDependencyArrows();
             }, 150);

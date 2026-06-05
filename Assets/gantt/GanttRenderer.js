@@ -41,6 +41,15 @@ class GanttRenderer extends GanttBase {
                     content.append(jQuery("<i>", { "class": "fa fa-diamond ganttview-milestone-icon", title: "Milestone" }));
                 }
 
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                if (item.end && !item.not_defined && this.compareDate(item.end, today) === -1) {
+                    content.append(jQuery("<i>", {
+                        "class": "fa fa-exclamation-circle ganttview-overdue-icon",
+                        title: "Overdue"
+                    }));
+                }
+
                 content.append(jQuery('<strong>').text(`#${item.id} `));
                 content.append(jQuery("<a>", { href: item.link, title: item.title }).text(item.title));
                 if (item.assignee) {
@@ -358,6 +367,31 @@ class GanttRenderer extends GanttBase {
         }
     }
 
+    refreshBlockText() {
+        jQuery("div.ganttview-block:not(.ganttview-subtask-block)", this.options.container).each((_, el) => {
+            const block = jQuery(el);
+            const record = block.data("record");
+            if (!record || record.type !== 'task') return;
+
+            const textEl = block.find(".ganttview-block-text");
+            if (!textEl.length) return;
+
+            const w = block.outerWidth();
+            textEl.css("width", `${Math.max(0, w - 10)}px`);
+            textEl.empty();
+
+            if (w >= 80) {
+                textEl.html($('<span>').text(`#${record.id} ${record.title}`));
+                block.removeClass("ganttview-block-narrow");
+            } else if (w >= 35) {
+                textEl.html($('<span>').text(`#${record.id}`));
+                block.removeClass("ganttview-block-narrow");
+            } else {
+                block.addClass("ganttview-block-narrow");
+            }
+        });
+    }
+
     getBarTitleText(record) {
         const parts = [];
         const container = $(this.options.container);
@@ -523,11 +557,14 @@ class GanttRenderer extends GanttBase {
         if (record.type === "task") {
             const textEl = jQuery("div.ganttview-block-text", block);
             textEl.empty();
-            this.addTaskBarText(textEl, record, pos.cellCount);
-            if (pos.cellCount < 3) {
-                block.addClass("ganttview-block-narrow");
-            } else {
+            if (px.width >= 80) {
+                textEl.html($('<span>').text(`#${record.id} ${record.title}`));
                 block.removeClass("ganttview-block-narrow");
+            } else if (px.width >= 35) {
+                textEl.html($('<span>').text(`#${record.id}`));
+                block.removeClass("ganttview-block-narrow");
+            } else {
+                block.addClass("ganttview-block-narrow");
             }
         }
 

@@ -10,6 +10,7 @@ class GanttInteraction extends GanttCriticalPath {
             minWidth: rcw - 1,
             start: (event, ui) => {
                 this._resizeMinLeft = this.getMinDragPosition(ui.element);
+                this._resizeHitConstraint = false;
                 this.showDateIndicator(ui.element, this._startDate);
             },
             resize: (event, ui) => {
@@ -23,6 +24,7 @@ class GanttInteraction extends GanttCriticalPath {
                 if (ui.position.left < minLeft) {
                     ui.size.width += (ui.position.left - minLeft);
                     ui.position.left = minLeft;
+                    this._resizeHitConstraint = true;
                 }
 
                 const effectiveLeft = marginLeft + ui.position.left;
@@ -70,6 +72,9 @@ class GanttInteraction extends GanttCriticalPath {
                 }
 
                 const record = block.data("record");
+                if (this._resizeHitConstraint && record) {
+                    this._notifyHiddenBlockers(record.id);
+                }
                 const oldStart = record ? this.cloneDate(record.start) : null;
                 const oldEnd = record ? this.cloneDate(record.end) : null;
                 this.updateDataAndPosition(block, this._startDate);
@@ -94,6 +99,7 @@ class GanttInteraction extends GanttCriticalPath {
                 this._activeBlock = ui.helper;
                 this._lastMouseX = event.clientX;
                 this._dragMinLeft = this.getMinDragPosition(ui.helper);
+                this._dragHitConstraint = false;
                 this.showDateIndicator(ui.helper, this._startDate);
                 this.startAutoScroll();
             },
@@ -105,6 +111,7 @@ class GanttInteraction extends GanttCriticalPath {
 
                 if (this._dragMinLeft !== null && snapped < this._dragMinLeft) {
                     ui.position.left = this._dragMinLeft - marginLeft;
+                    this._dragHitConstraint = true;
                 }
                 this._lastMouseX = event.clientX;
                 this.updateDateIndicator(ui.helper, this._startDate);
@@ -116,6 +123,9 @@ class GanttInteraction extends GanttCriticalPath {
                 this._activeBlock = null;
                 const block = ui.helper;
                 const record = block.data("record");
+                if (this._dragHitConstraint && record) {
+                    this._notifyHiddenBlockers(record.id);
+                }
                 const oldStart = record ? this.cloneDate(record.start) : null;
                 const oldEnd = record ? this.cloneDate(record.end) : null;
                 this.updateDataAndPosition(block, this._startDate);

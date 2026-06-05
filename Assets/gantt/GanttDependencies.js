@@ -72,11 +72,11 @@ class GanttDependencies extends GanttRenderer {
         for (const task of this.data) {
             if (task.dependencies && task.dependencies.length) {
                 const fromBlock = this.getBlockElement(task.id);
-                if (fromBlock) {
+                if (fromBlock && fromBlock.is(':visible')) {
                     const from = getBlockCoords(fromBlock);
                     for (const depId of task.dependencies) {
                         const toBlock = this.getBlockElement(depId);
-                        if (!toBlock) continue;
+                        if (!toBlock || !toBlock.is(':visible')) continue;
                         const to = getBlockCoords(toBlock);
 
                         const isCritLink = this.isOnCriticalChain && this.isOnCriticalChain(task.id) && this.isOnCriticalChain(depId);
@@ -88,11 +88,11 @@ class GanttDependencies extends GanttRenderer {
 
             if (task.milestone_sources && task.milestone_sources.length) {
                 const milestoneBlock = this.getBlockElement(task.id);
-                if (milestoneBlock) {
+                if (milestoneBlock && milestoneBlock.is(':visible')) {
                     const to = getBlockCoords(milestoneBlock);
                     for (const srcId of task.milestone_sources) {
                         const srcBlock = this.getBlockElement(srcId);
-                        if (!srcBlock) continue;
+                        if (!srcBlock || !srcBlock.is(':visible')) continue;
                         const from = getBlockCoords(srcBlock);
 
                         this._appendArrow(svg, from, to, "#8e44ad", 2, "gantt-arrow-milestone", "6 3");
@@ -162,17 +162,19 @@ class GanttDependencies extends GanttRenderer {
         const record = block.data("record");
         if (!record) return;
 
+        const visited = new Set();
+
         if (record.dependencies) {
             for (const depId of record.dependencies) {
-                this.enforceBlockedConstraint(depId);
+                this.enforceBlockedConstraint(depId, visited);
             }
         }
 
-        this.enforceBlockedConstraint(record.id);
-        this.enforceMilestoneConstraint(record);
+        this.enforceBlockedConstraint(record.id, visited);
+        this.enforceMilestoneConstraint(record, visited);
     }
 
-    enforceMilestoneConstraint(record) {
+    enforceMilestoneConstraint(record, _visited) {
         if (!record.milestone_sources || !record.milestone_sources.length) return;
         if (!record.end) return;
 
@@ -203,10 +205,20 @@ class GanttDependencies extends GanttRenderer {
             block.attr("title", this.getBarTitleText(record));
             block.data("record", record);
             this.saveRecord(record);
+
+            if (record.dependencies && _visited) {
+                for (const depId of record.dependencies) {
+                    this.enforceBlockedConstraint(depId, _visited);
+                }
+            }
         }
     }
 
-    enforceBlockedConstraint(taskId) {
+    enforceBlockedConstraint(taskId, _visited) {
+        if (!_visited) _visited = new Set();
+        if (_visited.has(taskId)) return;
+        _visited.add(taskId);
+
         const blockerEnd = this.getBlockerEndDate(taskId);
         if (!blockerEnd) return;
 
@@ -231,6 +243,12 @@ class GanttDependencies extends GanttRenderer {
             block.attr("title", this.getBarTitleText(record));
             block.data("record", record);
             this.saveRecord(record);
+
+            if (record.dependencies) {
+                for (const depId of record.dependencies) {
+                    this.enforceBlockedConstraint(depId, _visited);
+                }
+            }
         }
     }
 
@@ -257,6 +275,29 @@ class GanttDependencies extends GanttRenderer {
         const minStart = this.addDays(this.cloneDate(blockerEnd), 1);
         const dayIndex = this.daysBetween(this._startDate, minStart);
         return this.calcBlockPixels(dayIndex, 1).marginLeft;
+    }
+
+    _notifyHiddenBlockers(taskId) {
+        const blockers = this._blockedBy[taskId];
+        if (!blockers || !blockers.length) return;
+
+        const blockerEnd = this.getBlockerEndDate(taskId);
+        if (!blockerEnd) return;
+
+        const hidden = blockers.filter(id => {
+            const b = this.getBlockElement(id);
+            if (!b || b.is(':visible')) return false;
+            const t = this._taskIndex[id];
+            if (!t || !t.end) return false;
+            return this.compareDate(t.end, blockerEnd) === 0;
+        });
+        if (!hidden.length) return;
+
+        const names = hidden.map(id => {
+            const t = this._taskIndex[id];
+            return t ? `#${id} ${t.title}` : `#${id}`;
+        });
+        this.showConstraintNotice(`<i class="fa fa-eye-slash"></i> Blocked by hidden task${names.length > 1 ? 's' : ''}:<br>${names.join(', ')}`);
     }
 
     // --- Subtask constraint management ---

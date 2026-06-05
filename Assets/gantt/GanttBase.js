@@ -13,6 +13,7 @@ class GanttBase {
         this.dateFormat = $("body").data("js-date-format") || 'yy-mm-dd';
         this._zoomLevel = localStorage.getItem('gantt-zoom') || 'day';
         this._groupBy = localStorage.getItem('gantt-group') || 'none';
+        this._toast = new GanttToast({ maxCount: 4, timeout: 3000 });
 
         const zoom = GanttBase.ZOOM_LEVELS[this._zoomLevel] || GanttBase.ZOOM_LEVELS.day;
 
@@ -217,8 +218,10 @@ class GanttBase {
     }
 
     getDateRange(minDays) {
-        let minStart = null;
-        let maxEnd = null;
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        let minStart = this.cloneDate(today);
+        let maxEnd = this.cloneDate(today);
 
         for (const item of this.data) {
             if (item.type === 'group') continue;
@@ -227,16 +230,13 @@ class GanttBase {
             const end = new Date();
             end.setTime(Date.parse(item.end));
 
-            if (!minStart || this.compareDate(minStart, start) === 1) {
+            if (this.compareDate(start, minStart) === -1) {
                 minStart = start;
             }
-            if (!maxEnd || this.compareDate(maxEnd, end) === -1) {
+            if (this.compareDate(end, maxEnd) === 1) {
                 maxEnd = end;
             }
         }
-
-        if (!minStart) minStart = new Date();
-        if (!maxEnd) maxEnd = new Date();
 
         if (this.daysBetween(minStart, maxEnd) < minDays) {
             maxEnd = this.addDays(this.cloneDate(minStart), minDays);
@@ -275,16 +275,10 @@ class GanttBase {
     }
 
     showSaveStatus(message, isError) {
-        if (!this._saveIndicator) {
-            this._saveIndicator = jQuery("<div>", { "class": "ganttview-save-indicator" });
-            jQuery("body").append(this._saveIndicator);
-        }
-        this._saveIndicator
-            .text(message)
-            .toggleClass('error', !!isError)
-            .stop(true)
-            .fadeIn(100)
-            .delay(1500)
-            .fadeOut(400);
+        this._toast.show(message, isError ? 'error' : 'success');
+    }
+
+    showConstraintNotice(message) {
+        this._toast.show(message, 'warning');
     }
 }
